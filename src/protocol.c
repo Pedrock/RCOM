@@ -87,6 +87,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 		else reset = true;
 		if (reset)
 		{
+			if (data && state == A_RCV && (received == N(0) || received == N(1))) return 0;
 			debug_print("receive_frame: received: 0x%X, state: %d, ", received, state);
 			state = START;
 			debug_print("new_state: %d\n",state);
@@ -113,6 +114,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 			return 0;
 		}
 	}
+	debug_print("Received expected frame.");
 	if (state == STOP) return data?count:1;
 	else return -1;
 }
@@ -319,7 +321,7 @@ int llread(int fd, char* buffer)
 	s = (s ? 0 : 1);
 	char control = N(s);
 	int received = receive_i_frame(fd, control, buffer);
-	if (linkLayer.closed) return 0;
+	if (received == 0 || linkLayer.closed) return 0;
 	char rr = RR(s?0:1);
 	send_SU_frame(fd,rr);
 	return received;
