@@ -28,8 +28,8 @@
 #define ESCAPE 0x7d
 #define ESCAPE_BYTE(byte) (byte ^ 0x20)
 #define N(s) (s << 5)
-#define RR(s) ((s << 5) & 1)
-#define REJ(s) ((s << 5) & 5)
+#define RR(s) ((s << 5) | 1)
+#define REJ(s) ((s << 5) | 5)
 
 
 #define MAX_SIZE 1024
