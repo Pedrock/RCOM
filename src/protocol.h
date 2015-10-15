@@ -16,8 +16,8 @@
 #define TRANSMITTER 0
 #define RECEIVER 1
 
-#define TIMEOUT 3
-#define MAX_TRIES 3
+#define TIMEOUT 1
+#define MAX_TRIES 20
 #define BAUDRATE B9600
 
 #define F 0x7e // Flag
