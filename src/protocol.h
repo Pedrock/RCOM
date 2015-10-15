@@ -18,7 +18,7 @@
 
 #define TIMEOUT 3
 #define MAX_TRIES 3
-#define BAUDRATE B115200
+#define BAUDRATE B9600
 
 #define F 0x7e // Flag
 #define A 0x03 // Campo de Endereço
