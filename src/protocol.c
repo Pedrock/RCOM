@@ -22,6 +22,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 	unsigned char previous_char = 0;
 	bool use_previous = false;
 	unsigned char received;
+	bool reset = false;
 	int count = 0, i = 0;
 	if (size <= 0) size = MAX_SIZE;
 
@@ -36,7 +37,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 	{
 		int res = read(fd,&received,1);
 		if (res != 1) continue;
-		debug_print("receive_frame: received: 0x%X, state: %d, ", received, state);
+		//debug_print("receive_frame: received: 0x%X, state: %d, ", received, state);
 		if (received == F)
 		{
 			if (state < DATA) state = FLAG_RCV;
@@ -47,16 +48,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 				else
 				{
 					debug_print("invalid bcc2, received: %02X, expected: %02X\n", previous_char, bcc2);
-					state = FLAG_RCV;
-					int k;
-					printf("Buffer: ");
-					for (k = 0; k < i; k++)
-					{
-						printf("%02X ",(unsigned char)buffer[k]);
-					}
-					printf("\n");
-					bcc2 = 0;
-					i = 0;
+					reset = true;
 				}
 			}
 		}
@@ -89,8 +81,23 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 				state = DATA;
 			}
 		}
-		else state = START;
-		debug_print("new_state: %d\n",state);
+		else reset = true;
+		if (reset)
+		{
+			debug_print("receive_frame: received: 0x%X, state: %d, ", received, state);
+			state = START;
+			debug_print("new_state: %d\n",state);
+			int k;
+			printf("Buffer: ");
+			for (k = 0; k < i; k++)
+			{
+				printf("%02X ",(unsigned char)buffer[k]);
+			}
+			printf("\n");
+			bcc2 = 0;
+			i = 0;
+		}
+		//debug_print("new_state: %d\n",state);
 	}
 	alarm(0);
 	if (state == STOP && received == C_DISC)
@@ -304,10 +311,10 @@ int llwrite(int fd, char* buffer, int length)
 
 int llread(int fd, char* buffer)
 {
-	static int s = 1;
-	s = (s ? 0 : 1);
+	static int s = 0;
 	char control = N(s);
 	int received = receive_i_frame(fd,control, buffer);
+	if (received >= 0) s = (s ? 0 : 1);
 	if (linkLayer.closed) return 0;
 	char rr = RR(s?0:1);
 	send_SU_frame(fd,rr);
