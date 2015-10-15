@@ -32,6 +32,9 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 	expected[2] = control;
 	expected[3] = expected[1]^expected[2];
 	linkLayer.timeout = false;
+
+	debug_print("Expected control: 0x%02X\n",control);
+
 	if (timeout) set_alarm();
 	while (state != STOP && !linkLayer.timeout)
 	{
