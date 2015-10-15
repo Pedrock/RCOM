@@ -94,8 +94,8 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 				printf("%02X ",(unsigned char)buffer[k]);
 			}
 			printf("\n");
-			bcc2 = 0;
-			i = 0;
+			bcc2 = i = previous_char = count = 0;
+			use_previous = false;
 			reset = false;
 		}
 		//debug_print("new_state: %d\n",state);
