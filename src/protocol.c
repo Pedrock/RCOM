@@ -18,8 +18,8 @@ void set_alarm()
 int receive_frame(int fd, bool data, int size, char* buffer, char control, bool timeout) {
 	typedef enum {START=0,FLAG_RCV,A_RCV,C_RCV,DATA,DATA_ESCAPE,STOP} State;
 	State state = START;
-	char bcc2 = 0;
-	char previous_char = 0;
+	unsigned char bcc2 = 0;
+	unsigned char previous_char = 0;
 	bool use_previous = false;
 	unsigned char received;
 	int count = 0, i = 0;
@@ -56,6 +56,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 					}
 					printf("\n");
 					bcc2 = 0;
+					i = 0;
 				}
 			}
 		}
