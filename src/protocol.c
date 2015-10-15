@@ -36,7 +36,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 	{
 		int res = read(fd,&received,1);
 		if (res != 1) continue;
-		//debug_print("receive_frame: received: 0x%X, state: %d, ", received, state);
+		debug_print("receive_frame: received: 0x%X, state: %d, ", received, state);
 		if (received == F)
 		{
 			if (state < DATA) state = FLAG_RCV;
@@ -90,7 +90,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 			}
 		}
 		else state = START;
-		//debug_print("new_state: %d\n",state);
+		debug_print("new_state: %d\n",state);
 	}
 	alarm(0);
 	if (state == STOP && received == C_DISC)
