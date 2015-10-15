@@ -299,7 +299,7 @@ int llwrite(int fd, char* buffer, int length)
 
 	while (!success && numTransmissions < MAX_TRIES)
 	{
-		if (numTransmissions > 0) debug_print("llwrite: Trial number %d\n",numTransmissions+1);
+		debug_print("llwrite (s=%d): Trial number %d\n",s,numTransmissions+1);
 		write(fd,frame,frame_size);
 		success = receive_SU_frame(fd,expected);
 		numTransmissions++;
