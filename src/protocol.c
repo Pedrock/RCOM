@@ -315,10 +315,10 @@ int llwrite(int fd, char* buffer, int length)
 
 int llread(int fd, char* buffer)
 {
-	static int s = 0;
+	static int s = 1;
+	s = (s ? 0 : 1);
 	char control = N(s);
-	int received = receive_i_frame(fd,control, buffer);
-	if (received >= 0) s = (s ? 0 : 1);
+	int received = receive_i_frame(fd, control, buffer);
 	if (linkLayer.closed) return 0;
 	char rr = RR(s?0:1);
 	send_SU_frame(fd,rr);
