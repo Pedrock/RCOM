@@ -1,5 +1,5 @@
-﻿# define the C compiler to use
-CC = gcc
+﻿CC = gcc
+# define the C compiler to use
 
 # define any compile-time flags
 CFLAGS = -Wall
