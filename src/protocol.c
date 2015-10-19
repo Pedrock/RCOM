@@ -3,7 +3,6 @@
 void on_alarm()
 {
 	linkLayer.timeout = true;
-	debug_print("on_alarm\n");
 }
 
 void set_alarm()
@@ -11,7 +10,7 @@ void set_alarm()
 	struct sigaction sa;
 	sa.sa_handler = &on_alarm;
 	sa.sa_flags = 0;
-	sigaction(SIGALRM,&sa,NULL);
+	if (sigaction(SIGALRM,&sa,NULL) < 0) perror("sigaction failed");
 	alarm(TIMEOUT);
 }
 
@@ -23,7 +22,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 	bool use_previous = false;
 	unsigned char received;
 	bool reset = false;
-	int count = 0, i = 0;
+	int i = 0;
 	if (size <= 0) size = MAX_SIZE;
 
 	char expected[4];
@@ -33,14 +32,15 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 	expected[3] = expected[1]^expected[2];
 	linkLayer.timeout = false;
 
-	debug_print("Expected control: 0x%02X\n",control);
-
 	if (timeout) set_alarm();
 	while (state != STOP && !linkLayer.timeout)
 	{
 		int res = read(fd,&received,1);
-		if (res != 1) continue;
-		//debug_print("receive_frame: received: 0x%X, state: %d, ", received, state);
+		if (res == 0) continue;
+		else if (res < 0)
+		{
+			return READ_ERROR;
+		}
 		if (received == F)
 		{
 			if (state < DATA) state = FLAG_RCV;
@@ -65,11 +65,13 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 					if (i >= size)
 					{
 						perror("receive_frame: Insufficient buffer space.");
-						return -1;
+						reset = true;
 					}
-					buffer[i++] = previous_char;
-					bcc2 ^= previous_char;
-					count++;
+					else
+					{
+						buffer[i++] = previous_char;
+						bcc2 ^= previous_char;
+					}
 				}
 				if (received == ESCAPE) state = DATA_ESCAPE;
 				else
@@ -84,69 +86,53 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 				state = DATA;
 			}
 		}
+		else if (data && state == A_RCV && (received == N(0) || received == N(1))) return UNEXPECTED_N;
 		else reset = true;
 		if (reset)
 		{
-			if (data && state == A_RCV && (received == N(0) || received == N(1))) return 0;
-			debug_print("receive_frame: received: 0x%X, state: %d, ", received, state);
 			state = START;
-			debug_print("new_state: %d\n",state);
-			int k;
-			printf("Buffer: ");
-			for (k = 0; k < i; k++)
-			{
-				printf("%02X ",(unsigned char)buffer[k]);
-			}
-			printf("\n");
-			bcc2 = i = previous_char = count = 0;
+			bcc2 = i = previous_char = 0;
 			use_previous = false;
 			reset = false;
 		}
-		//debug_print("new_state: %d\n",state);
 	}
-	alarm(0);
+	if (timeout) alarm(0);
 	if (state == STOP && received == C_DISC)
 	{
 		linkLayer.disconnected = true;
 		if (data)
 		{
-			if (llclose(fd) < 0) return -1;
+			if (llclose(fd) < 0) return LLCLOSE_FAILED;
 			return 0;
 		}
 	}
-	debug_print("Received expected frame.");
-	if (state == STOP) return data?count:1;
-	else return -1;
+	if (state == STOP) return data?i:1;
+	else return TIMEOUT_FAIL;
 }
 
 int receive_i_frame(int fd, char control, char* buffer)
 {
-	int read = receive_frame(fd, true, 0, buffer, control, false);
-	return read;
+	return receive_frame(fd, true, 0, buffer, control, false);
 }
 
 bool receive_set_frame(int fd)
 {
-	int read = receive_frame(fd, false, 0, NULL, C_SET, false);
-	return read == 1;
+	return (receive_frame(fd, false, 0, NULL, C_SET, false) == 1);
 }
 
 bool receive_ua_frame(int fd)
 {
-	int read = receive_frame(fd, false, 0, NULL, C_UA, true);
-	return read == 1;
+	return (receive_frame(fd, false, 0, NULL, C_UA, true) == 1);
 }
 
 bool receive_disc_frame(int fd)
 {
-	int read = receive_frame(fd, false, 0, NULL, C_DISC, true);
-	return read == 1;
+	return (receive_frame(fd, false, 0, NULL, C_DISC, true) == 1);
 }
 
 bool receive_SU_frame(int fd, char control)
 {
-	int read = receive_frame(fd, false, 0, NULL, control, true);
-	return read == 1;
+	return (receive_frame(fd, false, 0, NULL, control, true) == 1);
 }
 
 bool send_SU_frame(int fd, char control)
@@ -183,13 +169,13 @@ int llopen(int port, int oflag)
 	typedef enum {START = 0,FLAG_RCV,A_RCV,C_RCV,BCC_OK,STOP} State;
 	sprintf(linkLayer.port,SERIAL_PATH,port);
 	debug_print("opening '%s'\n",linkLayer.port);
-	int fd = open(linkLayer.port, O_RDWR | O_NOCTTY); // | O_NDELAY
-	if (fd < 0) return fd;
+	int fd = open(linkLayer.port, O_RDWR | O_NOCTTY);
+	if (fd < 0) return OPEN_FAILED;
 	debug_print("serial port open\n");
 	struct termios newtio;
 	if (tcgetattr(fd,&linkLayer.oldtio) == -1) {
 		perror("tcgetattr");
-		return -1;
+		return SERIAL_SETUP_FAILED;
 	}
 	bzero(&newtio, sizeof(newtio));
 	newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
@@ -203,7 +189,7 @@ int llopen(int port, int oflag)
 
 	if (tcsetattr(fd,TCSANOW,&newtio) == -1) {
 		perror("tcsetattr");
-		return -1;
+		return SERIAL_SETUP_FAILED;
 	}
 
 	State state = START;
@@ -213,7 +199,7 @@ int llopen(int port, int oflag)
 		if (oflag == TRANSMITTER)
 		{
 			debug_print("llopen: Trial number %d\n",numTransmissions+1);
-			if (!send_set_frame(fd)) return -1;
+			if (!send_set_frame(fd)) return SEND_SET_FAILED;
 			if (receive_ua_frame(fd)) state = STOP;
 		}
 		else if (receive_set_frame(fd)) state = STOP;
@@ -223,7 +209,7 @@ int llopen(int port, int oflag)
 	{
 		debug_print("llopen failed\n");
 		close(fd);
-		return -1;
+		return TIMEOUT_FAIL;
 	}
 	if (oflag == RECEIVER)
 	{
@@ -233,7 +219,7 @@ int llopen(int port, int oflag)
 	if (linkLayer.disconnected)
 	{
 		debug_print("Disconnected.\n");
-		return -1;
+		return DISCONNECTED;
 	}
 	debug_print("llopen success.\n");
 	return fd;
@@ -281,13 +267,6 @@ unsigned char* create_i_frame(char* buffer, int length, int s, int* frame_size)
 	else frame[p++] = bcc2;
 	frame[p++] = F;
 	*frame_size = p;
-	/*int k;
-	printf("Frame sent: ");
-	for (k = 0; k < p; k++)
-	{
-		printf("%02X ",frame[k]);
-	}
-	printf(", bcc2:%02X\n",bcc2);*/
 	return frame;
 }
 
@@ -305,11 +284,12 @@ int llwrite(int fd, char* buffer, int length)
 
 	while (!success && numTransmissions < MAX_TRIES)
 	{
-		debug_print("llwrite (s=%d): Trial number %d\n",s,numTransmissions+1);
+		if (numTransmissions > 0) debug_print("llwrite: Trial number %d\n",numTransmissions+1);
 		write(fd,frame,frame_size);
 		success = receive_SU_frame(fd,expected);
 		numTransmissions++;
 	}
+	if (numTransmissions > 1) debug_print("llwrite: Sent\n");
 	free(frame);
 	if (success) return length;
 	else return -1;

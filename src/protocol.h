@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 
-#define DEBUG 1
+#define DEBUG 0
 #define debug_print(...) \
             do { if (DEBUG) printf(__VA_ARGS__); } while (0)
 
@@ -18,7 +18,7 @@
 
 #define TIMEOUT 1
 #define MAX_TRIES 20
-#define BAUDRATE B9600
+#define BAUDRATE B115200
 
 #define F 0x7e // Flag
 #define A 0x03 // Campo de Endereço
@@ -32,9 +32,22 @@
 #define REJ(s) ((s << 5) | 5)
 
 
-#define MAX_SIZE 1024
+#define MAX_SIZE 5000
 
 #define SERIAL_PATH "/dev/ttyS%d"
+
+// receive_frame errors 
+#define READ_ERROR -1
+#define UNEXPECTED_N -2
+#define LLCLOSE_FAILED -3
+#define TIMEOUT_FAIL -4
+
+// llopen errors
+#define OPEN_FAILED -1         
+#define SERIAL_SETUP_FAILED -2   
+#define SEND_SET_FAILED -3
+//#define TIMEOUT_FAIL -4
+#define DISCONNECTED -5
 
 struct {
     char port[20]; /*Dispositivo /dev/ttySx, x = 0, 1*/

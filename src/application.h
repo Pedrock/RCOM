@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <sys/time.h>
 
 #include "protocol.h"
 
@@ -15,7 +16,10 @@
 #define START_PACKET 1
 #define END_PACKET 2
 
-#define DATA_PACKET_SIZE 8
+#define DATA_PACKET_SIZE 64
+
+// ERRORS
+#define READ_ERROR -1
 
 struct {
 	int fd; /*Descritor correspondente à porta série*/

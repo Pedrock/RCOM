@@ -54,6 +54,7 @@ bool send_control_packet(char control, unsigned int file_size, char* filename)
 
 bool send_file(char* filename)
 {
+	printf("Sending file...\n");
 	FILE* file = fopen(filename, "rb");
 	if (file == NULL)
 	{
@@ -62,7 +63,6 @@ bool send_file(char* filename)
 	}
 	fseek(file, 0L, SEEK_END);
 	unsigned int file_size = ftell(file);
-	printf("file_size: %d\n",file_size);
 	fseek(file, 0L, SEEK_SET);
 	int r = 0;
 	if (!send_control_packet(START_PACKET, file_size, filename))
@@ -92,6 +92,7 @@ bool send_file(char* filename)
 		perror("send_control_packet failed");
 		return false;
 	}
+	printf("File sent\n");
 	return true;
 }
 
@@ -104,12 +105,15 @@ int receive_file()
 	int f_i = 0;
 	uint8_t N = 0;
 	typedef enum {START, DATA, END} State;
+	struct timeval tv0, tv1;
 	State state = START;
+	int length;
+	gettimeofday(&tv0, NULL); 
 	while (state != END)
 	{
 		int r = llread(appLayer.fd, (char*)packet);
+		if (r == 0 && r==UNEXPECTED_N) continue;
 		if (r < 0) return -1;
-		if (r == 0) continue;
 		if (packet[0] == START_PACKET)
 		{
 			if (packet[1] != 0)
@@ -153,30 +157,23 @@ int receive_file()
 		}
 		else if (state == DATA)
 		{
-			/*int k;
-			debug_print("Packet received: ");
-			for (k = 0; k < r; k++)
-			{
-				debug_print("%02X ",packet[k]);
-			}
-			debug_print("\n");*/
 			if (packet[0] == END_PACKET) state = END;
 			else if (packet[0] == DATA_PACKET && packet[1] == N)
 			{
-				int length = 256*(unsigned char)(packet[2]) + (unsigned char)(packet[3]);
-				//debug_print("length: %d\n",length);
+				length = 256*(unsigned char)(packet[2]) + (unsigned char)(packet[3]);
 				fwrite(packet+4, 1, length, output_file);
-				/*debug_print("Received data: ");
-				int k;
-				for (k = 0; k < length; k++)
-					debug_print("0x%02X ",packet[4+k]);
-				debug_print("\n");*/
 				f_i += length;
 				N++;
 			}
 			else debug_print("invalid data\n");
 		}
-		if (file_size) printf("total bytes received: %d/%d\n",f_i,file_size);
+		if (file_size && f_i && state != END) {
+			gettimeofday(&tv1, NULL); 
+			int percentage = 100.0*f_i/file_size;
+ 			float elapsed = tv1.tv_sec-tv0.tv_sec + (tv1.tv_usec-tv0.tv_usec)/1000000.0;
+ 			int remaining_time = (file_size-f_i)*elapsed/f_i + 0.5;
+			printf("Received %d%%, remaining time: %d seconds\n",percentage,remaining_time);
+		}
 	}
 	if (state == END)
 	{
@@ -249,13 +246,16 @@ int main(int argc, char** argv)
 
     int oflag = (argc==3?TRANSMITTER:RECEIVER);
 
+    if (oflag == TRANSMITTER) printf("Establishing connection...\n");
+    else printf("Waiting for connection...\n");
 	appLayer.fd = llopen(port,oflag);
 	if (appLayer.fd < 0)
 	{
 		perror("llopen error");
 		exit(1);
 	}
-	else if (oflag == TRANSMITTER)
+	printf("Connection established\n");
+	if (oflag == TRANSMITTER)
 	{
 		if (!send_file(argv[2]))
 		{
@@ -271,8 +271,9 @@ int main(int argc, char** argv)
 			perror("receive_file error");
 			exit(1);
 		}
+		else printf("File received with success\n");
 	}
 	llclose(appLayer.fd);
-	printf("end\n");
+	printf("Serial port closed\n");
 	return 0;
 }
