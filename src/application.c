@@ -52,7 +52,7 @@ bool send_control_packet(char control, unsigned int file_size, char* filename)
 	return result > 0;
 }
 
-bool send_file(char* filename)
+bool send_file(char* filename, unsigned int data_length)
 {
 	printf("Sending file...\n");
 	FILE* file = fopen(filename, "rb");
@@ -70,11 +70,11 @@ bool send_file(char* filename)
 		perror("send_control_packet failed");
 		return false;
 	}
-	char buffer[DATA_PACKET_SIZE];
+	char buffer[data_length];
 	uint8_t N = 0;
 	do
 	{
-		r = fread(buffer, 1, DATA_PACKET_SIZE, file);
+		r = fread(buffer, 1, data_length, file);
 		if (r < 0)
 		{
 			perror("fread failed");
@@ -96,31 +96,36 @@ bool send_file(char* filename)
 	return true;
 }
 
-int receive_file()
+int receive_file(unsigned int data_length)
 {
 	char* file_name = NULL;
+	char* file_name2 = NULL;
 	FILE* output_file = NULL;
 	unsigned int file_size = 0;
-	unsigned char packet[MAX_SIZE];
+	unsigned char* packet = malloc(256+2*data_length);
 	int f_i = 0;
 	uint8_t N = 0;
 	typedef enum {START, DATA, END} State;
 	struct timeval tv0, tv1;
 	State state = START;
 	int length;
+
+	char* pointers[] = {file_name,file_name2,(char*)packet};
+	unsigned int n_pointers = sizeof(pointers)/sizeof(char*);
+
 	gettimeofday(&tv0, NULL); 
 	while (state != END)
 	{
-		int r = llread(appLayer.fd, (char*)packet);
+		int r = llread(appLayer.fd, (char*)packet, BUFFER_SIZE);
 		if (r == 0 && r==UNEXPECTED_N) continue;
-		if (r < 0) return -1;
+		if (r < 0) return freeAndReturn(-1,pointers,n_pointers);
 		if (packet[0] == START_PACKET)
 		{
 			if (packet[1] != 0)
 			{
 				perror("unexpected value - parameter 1");
 				free(file_name);
-				return -1;
+				return freeAndReturn(-1,pointers,n_pointers);
 			}
 			N = f_i = 0;
 			if (file_name != NULL) free(file_name);
@@ -136,7 +141,7 @@ int receive_file()
 			{
 				perror("unexpected value - parameter 2");
 				free(file_name);
-				return -1;
+				return freeAndReturn(-1,pointers,n_pointers);
 			}
 			unsigned char str_length = (unsigned char)(packet[i++]);
 			file_name = malloc(str_length);
@@ -150,7 +155,7 @@ int receive_file()
 				perror(file_name_dir);
 				free(file_name_dir);
 				free(file_name);
-				return -1;
+				return freeAndReturn(-1,pointers,n_pointers);
 			}
 			free(file_name_dir);
 			state = DATA;
@@ -181,8 +186,7 @@ int receive_file()
 		if (packet[1] != 0)
 		{
 			perror("unexpected value - parameter 1");
-			free(file_name);
-			return -1;
+			return freeAndReturn(-1,pointers,n_pointers);
 		}
 		int file_size2 = 0;
 		int i;
@@ -195,39 +199,30 @@ int receive_file()
 		if (packet[i++] != 1)
 		{
 			perror("unexpected value - parameter 2");
-			free(file_name);
-			return -1;
+			return freeAndReturn(-1,pointers,n_pointers);
 		}
 		unsigned char str_length = (unsigned char)(packet[i++]);
-		char* file_name2 = malloc(str_length);
+		file_name2 = malloc(str_length);
 		memcpy(file_name2, packet+i, str_length);
 		if (file_size != file_size2)
 		{
 			perror("Headers file sizes do not match");
-			free(file_name);
-			free(file_name2);
-			return -1;
+			return freeAndReturn(-1,pointers,n_pointers);
 		}
 		else if (file_size != f_i)
 		{
 			debug_print("file_size: %d, f_i: %d\n",file_size,f_i);
 			perror("Headers file size and received size do not match");
-			free(file_name);
-			free(file_name2);
-			return -1;
+			return freeAndReturn(-1,pointers,n_pointers);
 		}
 		if (strcmp(file_name, file_name2) != 0)
 		{
 			perror("File names do not match");
-			free(file_name);
-			free(file_name2);
-			return -1;
+			return freeAndReturn(-1,pointers,n_pointers);
 		}
-		free(file_name);
-		free(file_name2);
 		fclose(output_file);
 		debug_print("received with success\n");
-		return f_i;
+		return freeAndReturn(f_i,pointers,n_pointers);
 	}
 	return -1;
 }
@@ -244,6 +239,13 @@ int main(int argc, char** argv)
     int port;
     if (!sscanf(argv[1],"%d",&port)) invalid_args(argv[0]);
 
+    unsigned int data_length = DEFAULT_PACKET_DATA_LENGTH;
+    if (setConfig(DEFAULT_BAUDRATE, data_length, DEFAULT_MAX_TRIES, DEFAULT_TIMEOUT_INTERVAL) < 0)
+    {
+    	perror("configuration error");
+    	return -1;
+    }
+
     int oflag = (argc==3?TRANSMITTER:RECEIVER);
 
     if (oflag == TRANSMITTER) printf("Establishing connection...\n");
@@ -257,7 +259,7 @@ int main(int argc, char** argv)
 	printf("Connection established\n");
 	if (oflag == TRANSMITTER)
 	{
-		if (!send_file(argv[2]))
+		if (!send_file(argv[2],data_length))
 		{
 			perror("send_file error");
 			exit(1);
@@ -265,7 +267,7 @@ int main(int argc, char** argv)
 	}
 	else
 	{
-		int length = receive_file();
+		int length = receive_file(data_length);
 		if (length < 0)
 		{
 			perror("receive_file error");

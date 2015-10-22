@@ -1,4 +1,6 @@
-﻿#include <sys/types.h>
+﻿#pragma once
+
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <termios.h>
@@ -9,16 +11,12 @@
 #include <stdbool.h>
 #include <unistd.h>
 
-#define DEBUG 0
+#define DEBUG 1
 #define debug_print(...) \
             do { if (DEBUG) printf(__VA_ARGS__); } while (0)
 
 #define TRANSMITTER 0
 #define RECEIVER 1
-
-#define TIMEOUT 1
-#define MAX_TRIES 20
-#define BAUDRATE B115200
 
 #define F 0x7e // Flag
 #define A 0x03 // Campo de Endereço
@@ -32,7 +30,6 @@
 #define REJ(s) ((s << 5) | 5)
 
 
-#define MAX_SIZE 5000
 
 #define SERIAL_PATH "/dev/ttyS%d"
 
@@ -49,17 +46,22 @@
 //#define TIMEOUT_FAIL -4
 #define DISCONNECTED -5
 
-struct {
-    char port[20]; /*Dispositivo /dev/ttySx, x = 0, 1*/
-    unsigned int sequenceNumber; /*Número de sequência da trama: 0,1 */
-    bool timeout; /* indica se occoreu timeout */
-	struct termios oldtio;
-	bool disconnected;
-	int oflag;
-	int closed;
+struct{
+    char port[20]; // Dispositivo /dev/ttySx, x = 0, 1
+    unsigned int sequenceNumber; // Número de sequência da trama: 0,1 
+    volatile bool timeout; // indica se occoreu timeout
+	struct termios oldtio; // configuração anterior
+	bool disconnected; // Indica se a ligação foi desligada
+	int oflag; // Transmissor ou receptor
+	int closed; // Indica se a porta série foi fechada
+	unsigned int baudrate; // Baudrate usado (valor de configuração de acordo com o header termios)
+	unsigned int data_length; // Número de bytes de dados (antes do stuffing) a enviar por pacote de dados
+	unsigned int max_retries; // Número máximo de tentativas em caso de falha
+	unsigned int timeout_interval; // Intervalo de timeout
 } linkLayer;
 
+int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval);
 int llopen(int port, int oflag);
 int llwrite(int fd, char* buffer, int length);
-int llread(int fd, char* buffer);
+int llread(int fd, char* buffer, unsigned int buffer_size);
 int llclose(int fd);

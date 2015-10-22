@@ -11,10 +11,10 @@ void set_alarm()
 	sa.sa_handler = &on_alarm;
 	sa.sa_flags = 0;
 	if (sigaction(SIGALRM,&sa,NULL) < 0) perror("sigaction failed");
-	alarm(TIMEOUT);
+	alarm(linkLayer.timeout_interval);
 }
 
-int receive_frame(int fd, bool data, int size, char* buffer, char control, bool timeout) {
+int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control, bool timeout) {
 	typedef enum {START=0,FLAG_RCV,A_RCV,C_RCV,DATA,DATA_ESCAPE,STOP} State;
 	State state = START;
 	unsigned char bcc2 = 0;
@@ -23,7 +23,6 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 	unsigned char received;
 	bool reset = false;
 	int i = 0;
-	if (size <= 0) size = MAX_SIZE;
 
 	char expected[4];
 	expected[0] = F;
@@ -62,7 +61,7 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 		{
 			if (state == DATA) {
 				if (use_previous) {
-					if (i >= size)
+					if (i >= buffer_size)
 					{
 						perror("receive_frame: Insufficient buffer space.");
 						reset = true;
@@ -110,9 +109,9 @@ int receive_frame(int fd, bool data, int size, char* buffer, char control, bool 
 	else return TIMEOUT_FAIL;
 }
 
-int receive_i_frame(int fd, char control, char* buffer)
+int receive_i_frame(int fd, char control, unsigned int buffer_size, char* buffer)
 {
-	return receive_frame(fd, true, 0, buffer, control, false);
+	return receive_frame(fd, true, buffer_size, buffer, control, false);
 }
 
 bool receive_set_frame(int fd)
@@ -161,6 +160,55 @@ bool send_disc_frame(int fd)
 	return (send_SU_frame(fd, C_DISC) == 1);
 }
 
+int baudrate_to_config_value(int baudrate)
+{
+	switch (baudrate)
+	{
+		case 50: return B50;
+		case 75: return B75;
+		case 110: return B110;
+		case 134: return B134;
+		case 150: return B150;
+		case 200: return B200;
+		case 300: return B300;
+		case 600: return B600;
+		case 1200: return B1200;
+		case 1800: return B1800;
+		case 2400: return B2400;
+		case 4800: return B4800;
+		case 9600: return B9600;
+		case 19200: return B19200;
+		case 38400: return B38400;
+		case 57600: return B57600;
+		case 115200: return B115200;
+		case 230400: return B230400;
+		case 460800: return B460800;
+		case 500000: return B500000;
+		case 576000: return B576000;
+		case 921600: return B921600;
+		case 1000000: return B1000000;
+		case 1152000: return B1152000;
+		case 1500000: return B1500000;
+		case 2000000: return B2000000;
+		case 2500000: return B2500000;
+		case 3000000: return B3000000;
+		case 3500000: return B3500000;
+		case 4000000: return B4000000;
+		default: return -1;
+	}
+}
+
+int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval)
+{
+	int value = baudrate_to_config_value(baudrate);
+	if (value > 0) linkLayer.baudrate = value;
+	else return -1;
+	linkLayer.data_length = data_length;
+	linkLayer.max_retries = max_retries;
+	linkLayer.timeout_interval = timeout_interval;
+	return 0;
+}
+
 int llopen(int port, int oflag)
 {
 	linkLayer.disconnected = false;
@@ -178,7 +226,7 @@ int llopen(int port, int oflag)
 		return SERIAL_SETUP_FAILED;
 	}
 	bzero(&newtio, sizeof(newtio));
-	newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
+	newtio.c_cflag = linkLayer.baudrate | CS8 | CLOCAL | CREAD;
 	newtio.c_iflag = IGNPAR;
 	newtio.c_oflag = OPOST;
 	newtio.c_lflag = 0;
@@ -194,8 +242,10 @@ int llopen(int port, int oflag)
 
 	State state = START;
 	int numTransmissions = 0;
-	while (state != STOP && numTransmissions < MAX_TRIES)
+	
+	while (state != STOP && numTransmissions < linkLayer.max_retries)
 	{
+		
 		if (oflag == TRANSMITTER)
 		{
 			debug_print("llopen: Trial number %d\n",numTransmissions+1);
@@ -282,7 +332,7 @@ int llwrite(int fd, char* buffer, int length)
 	int success = false;
 	char expected = RR(s?0:1);
 
-	while (!success && numTransmissions < MAX_TRIES)
+	while (!success && numTransmissions < linkLayer.max_retries)
 	{
 		if (numTransmissions > 0) debug_print("llwrite: Trial number %d\n",numTransmissions+1);
 		write(fd,frame,frame_size);
@@ -295,12 +345,12 @@ int llwrite(int fd, char* buffer, int length)
 	else return -1;
 }
 
-int llread(int fd, char* buffer)
+int llread(int fd, char* buffer, unsigned int buffer_size)
 {
 	static int s = 1;
 	s = (s ? 0 : 1);
 	char control = N(s);
-	int received = receive_i_frame(fd, control, buffer);
+	int received = receive_i_frame(fd, control, buffer_size, buffer);
 	if (received == 0 || linkLayer.closed) return 0;
 	char rr = RR(s?0:1);
 	send_SU_frame(fd,rr);
@@ -314,7 +364,7 @@ int llclose(int fd)
 	{
 		bool success = false;
 		int numTransmissions = 0;
-		while (!success && numTransmissions < MAX_TRIES)
+		while (!success && numTransmissions < linkLayer.max_retries)
 		{
 			debug_print("Sending disconnected, trial: %d\n",numTransmissions+1);
 			if (!send_disc_frame(fd)) return -1;
