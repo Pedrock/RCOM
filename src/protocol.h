@@ -66,6 +66,13 @@ struct{
 	unsigned int timeout_interval; // Intervalo de timeout
 } linkLayer;
 
+struct{
+	unsigned int timeout_counter;
+	unsigned int sent_counter;
+	unsigned int retry_counter;
+	unsigned int received_counter;
+}statistics;
+
 int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval);
 int llopen(int port, int oflag);
 int llwrite(int fd, char* buffer, int length);
