@@ -75,8 +75,8 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 			return READ_ERROR;
 		}
 		#ifdef SIMULATE_ERRORS
-			int random = rand() % 500;
-			if (random == 0)
+			int random = rand() % 1000;
+			if (random == 1)
 			{
 				printf("Created error\n");
 				received = rand() % 256;
@@ -364,7 +364,7 @@ int llwrite(int fd, char* buffer, int length)
 	s = (s ? 0 : 1);
 	int frame_size;
 	unsigned char* frame = create_i_frame(buffer, length, s, &frame_size);
-	if (frame == 0) return -1;
+	if (frame == 0) return MALLOC_FAILED;
 
 	int numTransmissions = 0;
 	int success = false;
@@ -380,7 +380,7 @@ int llwrite(int fd, char* buffer, int length)
 	if (numTransmissions > 1) debug_print("llwrite: Sent\n");
 	free(frame);
 	if (success) return length;
-	else return -1;
+	else return TIMEOUT_FAIL;
 }
 
 int llread(int fd, char* buffer, unsigned int buffer_size)

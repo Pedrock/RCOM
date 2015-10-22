@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <time.h>
 
-#define DEBUG 1
+#define DEBUG 0
 #define debug_print(...) \
             do { if (DEBUG) printf(__VA_ARGS__); } while (0)
 
@@ -47,6 +47,10 @@
 #define SEND_SET_FAILED -3
 //#define TIMEOUT_FAIL -4
 #define DISCONNECTED -5
+
+// llwrite errors
+#define MALLOC_FAILED -1
+//#define TIMEOUT_FAIL -4
 
 struct{
     char port[20]; // Dispositivo /dev/ttySx, x = 0, 1

@@ -24,10 +24,16 @@
 #define DEFAULT_MAX_TRIES 5
 #define DEFAULT_TIMEOUT_INTERVAL 1
 
+// receive_file errors
+#define INVALID_HEADER -11
+#define OUTPUT_FILE_ERROR -12
+#define HEADERS_DO_NOT_MATCH -13
 
-#define BUFFER_SIZE 5000
+// send_file errors
+#define OPEN_FILE_ERROR -21
+
 
 struct {
 	int fd; /*Descritor correspondente à porta série*/
-	int status; /*TRANSMITTER | RECEIVER*/
+	int oflag; /*TRANSMITTER | RECEIVER*/
 } appLayer;
