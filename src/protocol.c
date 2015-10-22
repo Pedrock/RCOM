@@ -25,7 +25,7 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control
 	int i = 0;
 
 	char expected[4];
-	expected[0] = F;
+	expected[0] = F; 
 	expected[1] = A;
 	expected[2] = control;
 	expected[3] = expected[1]^expected[2];
@@ -206,6 +206,8 @@ int setConfig(int baudrate, int data_length, int max_retries, int timeout_interv
 	linkLayer.data_length = data_length;
 	linkLayer.max_retries = max_retries;
 	linkLayer.timeout_interval = timeout_interval;
+	
+
 	return 0;
 }
 
@@ -214,6 +216,7 @@ int llopen(int port, int oflag)
 	linkLayer.disconnected = false;
 	linkLayer.oflag = oflag;
 	linkLayer.closed = false;
+	statistics={0,0,0,0};
 	typedef enum {START = 0,FLAG_RCV,A_RCV,C_RCV,BCC_OK,STOP} State;
 	sprintf(linkLayer.port,SERIAL_PATH,port);
 	debug_print("opening '%s'\n",linkLayer.port);
@@ -253,6 +256,12 @@ int llopen(int port, int oflag)
 			if (receive_ua_frame(fd)) state = STOP;
 		}
 		else if (receive_set_frame(fd)) state = STOP;
+		
+		statistics.sent_counter+=1;
+		statistics.received_counter+=2;
+		if(numTransmissions>=1)
+			statistics.retry_counter+=1;
+			
 		numTransmissions++;
 	}
 	if (state != STOP)
@@ -264,6 +273,7 @@ int llopen(int port, int oflag)
 	if (oflag == RECEIVER)
 	{
 		if (!send_ua_frame(fd)) return -1;
+		statistics.sent_counter+=1;
 		debug_print("ua sent\n");
 	}
 	if (linkLayer.disconnected)
@@ -369,16 +379,24 @@ int llclose(int fd)
 			debug_print("Sending disconnected, trial: %d\n",numTransmissions+1);
 			if (!send_disc_frame(fd)) return -1;
 			success = receive_disc_frame(fd);
+			statistics.sent_counter+=1;
+			statistics.received_counter+=1;
+			if(numTransmissions>=1)
+				statistics.retry_counter+=1;
 			numTransmissions++;
 		}
 		if (success)
 		{
 			if (!send_ua_frame(fd)) return -1;
+			statistics.sent_counter+=1;
 		}
 		else return -1;
 	}
 	else if (!send_disc_frame(fd)) return -1;
 	if (close(fd) < 0) return -1;
+	
+	statistics.sent_counter+=1;
+
 	linkLayer.closed = true;
 	debug_print("Closed\n");
 	return 1;
