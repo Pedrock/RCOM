@@ -66,15 +66,18 @@ struct{
 	unsigned int timeout_interval; // Intervalo de timeout
 } linkLayer;
 
-struct{
+struct statistics_t {
+	unsigned int sent_i_counter;
+	unsigned int retry_i_counter;
+	unsigned int received_i_counter;
 	unsigned int timeout_counter;
-	unsigned int sent_counter;
-	unsigned int retry_counter;
-	unsigned int received_counter;
-}statistics;
+	unsigned int sent_rej_counter;
+	unsigned int received_rej_counter;
+} statistics;
 
 int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval);
 int llopen(int port, int oflag);
 int llwrite(int fd, char* buffer, int length);
 int llread(int fd, char* buffer, unsigned int buffer_size);
 int llclose(int fd);
+struct statistics_t getStatistics();

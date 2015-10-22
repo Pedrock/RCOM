@@ -44,7 +44,7 @@ bool send_disc_frame(int fd)
 
 bool send_rej_frame(int fd, unsigned char r)
 {
-	printf("send REJ\n");
+	statistics.sent_rej_counter++;
 	return (send_SU_frame(fd, REJ(r)) == 1);
 }
 
@@ -100,7 +100,10 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 				else if (!data) {
 					if (received_control != control)
 					{
-						if (s != -1 && received_control == REJ(s)) return REJECTED;
+						if (s != -1 && received_control == REJ(s)) {
+							statistics.received_rej_counter++;
+							return REJECTED;
+						}
 						else reset = true;
 					}
 					else state = STOP;
@@ -169,7 +172,7 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 	}
 	if (use_timeout) alarm(0);
 	if (state == STOP) {
-		if (data) statistics.received_counter++;
+		if (data) statistics.received_i_counter++;
 		return data?i:1;
 	}
 	else return TIMEOUT_FAIL;
@@ -258,10 +261,7 @@ int llopen(int port, int oflag)
 	linkLayer.oflag = oflag;
 	linkLayer.closed = false;
 
-	statistics.timeout_counter=0;
-	statistics.sent_counter=0;
-	statistics.retry_counter=0;
-	statistics.received_counter=0;
+	statistics = (struct statistics_t){0,0,0,0,0,0};
 
 	typedef enum {START = 0,FLAG_RCV,A_RCV,C_RCV,BCC_OK,STOP} State;
 	sprintf(linkLayer.port,SERIAL_PATH,port);
@@ -386,10 +386,9 @@ int llwrite(int fd, char* buffer, int length)
 	{
 		if (numTransmissions > 0) debug_print("llwrite: Trial number %d\n",numTransmissions+1);
 		write(fd,frame,frame_size);
-		statistics.sent_counter++;
 		success = receive_SU_frame(fd,expected);
-		if(numTransmissions>0)
-			statistics.retry_counter++;
+		if(!numTransmissions) statistics.sent_i_counter++;
+		else statistics.retry_i_counter++;
 		numTransmissions++;
 	}
 	if (numTransmissions > 1) debug_print("llwrite: Sent\n");
@@ -431,15 +430,13 @@ int llclose(int fd)
 	}
 	else if (!send_disc_frame(fd)) return -1;
 	if (close(fd) < 0) return -1;
-	
-	printf("Sent: %i\n", statistics.sent_counter);
-	printf("Retry: %i\n", statistics.retry_counter);
-	printf("Received: %i\n", statistics.received_counter);
-	
-	if(linkLayer.oflag == TRANSMITTER)
-		printf("Timeout: %i\n", statistics.timeout_counter);
 
 	linkLayer.closed = true;
 	debug_print("Closed\n");
 	return 1;
+}
+
+struct statistics_t getStatistics()
+{
+	return statistics;
 }

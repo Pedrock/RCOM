@@ -204,12 +204,12 @@ void invalid_args(char* program_name)
 
 void printConfiguration(int baudrate, int packet_data_length, int max_tries, int timeout_interval)
 {
-	printf("\n********** Configuration **********\n");
+	printf("\n************ Configuration ************\n");
 	printf("\tBaud Rate: %d\n", baudrate);
 	printf("\tPacket Data Length: %d\n", packet_data_length);
 	printf("\tMax Tries per Packet: %d\n", max_tries);
 	printf("\tTimeout Interval: %d\n", timeout_interval);
-	printf("***********************************\n\n");
+	printf("***************************************\n\n");
 }
 
 void configWithArguments(int argc, char** argv, int* port, char** file, int* data_length)
@@ -246,6 +246,19 @@ void configWithArguments(int argc, char** argv, int* port, char** file, int* dat
     }
     printConfiguration(args[0],args[1],args[2],args[3]);
     *data_length = args[1];
+}
+
+void printStatistics()
+{
+	struct statistics_t statistics = getStatistics();
+	printf("\n******************* Statistics *******************\n");
+	printf("\tUnique I frames sent: %d\n", statistics.sent_i_counter);
+	printf("\tI frames re-sent: %d\n", statistics.retry_i_counter);
+	printf("\tI Frames received: %d\n", statistics.received_i_counter);
+	printf("\tTimeouts occurrences: %d\n", statistics.timeout_counter);
+	printf("\tREJ frames sent: %d\n", statistics.sent_rej_counter);
+	printf("\tREJ Frames received: %d\n", statistics.received_rej_counter);
+	printf("**************************************************\n\n");
 }
 
 int main(int argc, char** argv)
@@ -285,5 +298,6 @@ int main(int argc, char** argv)
 	}
 	llclose(appLayer.fd);
 	printf("Serial port closed.\n");
+	printStatistics();
 	return 0;
 }
