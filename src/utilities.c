@@ -17,7 +17,7 @@ int getNumberArgument(int argc, char** argv, char* name)
 	{
 		if (!strcmp(argv[i],name)) break;
 	}
-	if (++i < arc)
+	if (++i < argc)
 	{
 		return atoi(argv[i]);
 	}

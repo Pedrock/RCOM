@@ -14,7 +14,7 @@ void set_alarm()
 	alarm(linkLayer.timeout_interval);
 }
 
-int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control, bool timeout) {
+int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control, bool use_timeout) {
 	typedef enum {START=0,FLAG_RCV,A_RCV,C_RCV,DATA,DATA_ESCAPE,STOP} State;
 	State state = START;
 	unsigned char bcc2 = 0;
@@ -31,7 +31,7 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control
 	expected[3] = expected[1]^expected[2];
 	linkLayer.timeout = false;
 
-	if (timeout) set_alarm();
+	if (use_timeout) set_alarm();
 	while (state != STOP && !linkLayer.timeout)
 	{
 		int res = read(fd,&received,1);
@@ -95,7 +95,7 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control
 			reset = false;
 		}
 	}
-	if (timeout) alarm(0);
+	if (use_timeout) alarm(0);
 	if (state == STOP && received == C_DISC)
 	{
 		linkLayer.disconnected = true;
