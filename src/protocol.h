@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <time.h>
 
 #define DEBUG 1
 #define debug_print(...) \
@@ -26,10 +27,10 @@
 #define ESCAPE 0x7d
 #define ESCAPE_BYTE(byte) (byte ^ 0x20)
 #define N(s) (s << 5)
-#define RR(s) ((s << 5) | 1)
-#define REJ(s) ((s << 5) | 5)
+#define RR(r) ((r << 5) | 1)
+#define REJ(r) ((r << 5) | 5)
 
-
+#define SIMULATE_ERRORS 1
 
 #define SERIAL_PATH "/dev/ttyS%d"
 
@@ -38,6 +39,7 @@
 #define UNEXPECTED_N -2
 #define LLCLOSE_FAILED -3
 #define TIMEOUT_FAIL -4
+#define REJECTED -5
 
 // llopen errors
 #define OPEN_FAILED -1         

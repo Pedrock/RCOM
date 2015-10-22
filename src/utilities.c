@@ -10,16 +10,13 @@ int freeAndReturn(int returnValue, char* pointers[], int length)
 	return returnValue;
 }
 
-int getNumberArgument(int argc, char** argv, char* name)
+bool isNumber(char number[])
 {
-	int i;
-	for (i = 1; i < argc; i++)
-	{
-		if (!strcmp(argv[i],name)) break;
-	}
-	if (++i < argc)
-	{
-		return atoi(argv[i]);
-	}
-	return -1;
+    int i = 0;
+    for (; number[i] != 0; i++)
+    {
+        if (!isdigit(number[i]))
+            return false;
+    }
+    return true;
 }

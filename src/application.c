@@ -8,20 +8,10 @@ bool send_data_packet(char* buffer, int length, unsigned char N)
 	packet[2] = (uint8_t)(length/256);
 	packet[3] = (uint8_t)(length - packet[2]*256);
 	int i;
-	//debug_print("Sent data: ");
 	for (i = 0; i < length; i++)
 	{
-		//debug_print("0x%02X ",(unsigned char)buffer[i]);
 		packet[4+i] = (unsigned char)buffer[i];
 	}
-	/*debug_print("\n");
-	int k;
-	printf("Packet sent: ");
-	for (k = 0; k < i+4; k++)
-	{
-		printf("%02X ",packet[k]);
-	}
-	printf("\n");*/
 	int result = llwrite(appLayer.fd,(char*)packet,4+i);
 	free(packet);
 	return result > 0;
@@ -41,13 +31,6 @@ bool send_control_packet(char control, unsigned int file_size, char* filename)
 	strcpy(packet+i,filename);
 	i += strlen(filename)+1;
 	int result = llwrite(appLayer.fd,packet,i);
-	/*int k;
-	printf("Packet sent: ");
-	for (k = 0; k < i; k++)
-	{
-		printf("%02X ",(unsigned char)packet[k]);
-	}
-	printf("\n");*/
 	free(packet);
 	return result > 0;
 }
@@ -118,7 +101,7 @@ int receive_file(unsigned int data_length)
 	while (state != END)
 	{
 		int r = llread(appLayer.fd, (char*)packet, buffer_size);
-		if (r == 0 && r==UNEXPECTED_N) continue;
+		if (r==UNEXPECTED_N) continue;
 		if (r < 0) return freeAndReturn(-1,pointers,n_pointers);
 		if (packet[0] == START_PACKET)
 		{
@@ -228,26 +211,54 @@ int receive_file(unsigned int data_length)
 	return -1;
 }
 
-void invalid_args(char* name)
+void invalid_args(char* program_name)
 {
-	printf("Usage:\t%s <serial port number> [file_to_send]\n",name);
+	printf("Usage:\t%s <serial port number> [file_to_send] [-b baudrate] [-l data_length] [-t max_tries] [-i timeout_interval]\n",program_name);
     exit(1);
+}
+
+void configWithArguments(int argc, char** argv, int* port, char** file, int* data_length)
+{
+	const char* valid_args[] = {"-b", "-l", "-t", "-i"};
+	int valid_args_length = 4;
+	int args[4] = {DEFAULT_BAUDRATE,DEFAULT_PACKET_DATA_LENGTH,DEFAULT_MAX_TRIES,DEFAULT_TIMEOUT_INTERVAL};
+	*file = NULL;
+	if (argc < 2) invalid_args(argv[0]);
+	if (!isNumber(argv[1]) || !sscanf(argv[1],"%d",port)) invalid_args(argv[0]);
+	int i = 2;
+	if (argc >= 3 && strncmp(argv[2],"-",1) != 0) *file = argv[i++];
+	for (; i < argc; i++)
+	{
+		int found_index = -1, k;
+		for (k = 0; k < valid_args_length; k++)
+		{
+			if (strcmp(valid_args[k],argv[i]) == 0)
+			{
+				found_index = k;
+				break;
+			}
+		}
+		if (found_index == -1 
+			|| ++i == argc
+			|| !isNumber(argv[i]) 
+			|| !sscanf(argv[i],"%d",&args[found_index]))
+				invalid_args(argv[0]);
+	}
+	if (setConfig(args[0],args[1],args[2],args[3]) < 0)
+    {
+    	fprintf(stderr, "Invalid baudrate\n");
+    	exit(-1);
+    }
+    *data_length = args[1];
 }
 
 int main(int argc, char** argv)
 {
-	if (argc != 3 && argc != 2) invalid_args(argv[0]);
-    int port;
-    if (!sscanf(argv[1],"%d",&port)) invalid_args(argv[0]);
+    int port, data_length;
+    char* file;
+    configWithArguments(argc, argv, &port, &file, &data_length);
 
-    unsigned int data_length = DEFAULT_PACKET_DATA_LENGTH;
-    if (setConfig(DEFAULT_BAUDRATE, data_length, DEFAULT_MAX_TRIES, DEFAULT_TIMEOUT_INTERVAL) < 0)
-    {
-    	perror("configuration error");
-    	return -1;
-    }
-
-    int oflag = (argc==3?TRANSMITTER:RECEIVER);
+    int oflag = (file?TRANSMITTER:RECEIVER);
 
     if (oflag == TRANSMITTER) printf("Establishing connection...\n");
     else printf("Waiting for connection...\n");
