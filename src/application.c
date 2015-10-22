@@ -102,7 +102,8 @@ int receive_file(unsigned int data_length)
 	char* file_name2 = NULL;
 	FILE* output_file = NULL;
 	unsigned int file_size = 0;
-	unsigned char* packet = malloc(256+2*data_length);
+	unsigned int buffer_size = 300+data_length;
+	unsigned char* packet = malloc(buffer_size);
 	int f_i = 0;
 	uint8_t N = 0;
 	typedef enum {START, DATA, END} State;
@@ -116,7 +117,7 @@ int receive_file(unsigned int data_length)
 	gettimeofday(&tv0, NULL); 
 	while (state != END)
 	{
-		int r = llread(appLayer.fd, (char*)packet, BUFFER_SIZE);
+		int r = llread(appLayer.fd, (char*)packet, buffer_size);
 		if (r == 0 && r==UNEXPECTED_N) continue;
 		if (r < 0) return freeAndReturn(-1,pointers,n_pointers);
 		if (packet[0] == START_PACKET)
