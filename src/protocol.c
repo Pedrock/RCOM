@@ -3,6 +3,7 @@
 void on_alarm()
 {
 	linkLayer.timeout = true;
+	statistics.timeout_counter++;
 }
 
 void set_alarm()
@@ -105,7 +106,11 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control
 			return 0;
 		}
 	}
-	if (state == STOP) return data?i:1;
+	if (state == STOP) {
+		if(data)
+			statistics.received_counter++;
+		return data?i:1;
+	}
 	else return TIMEOUT_FAIL;
 }
 
@@ -142,7 +147,7 @@ bool send_SU_frame(int fd, char control)
 	frame[2] = control;
 	frame[3] = frame[1]^frame[2];
 	frame[4] = F;
-	return (write(fd,frame,5) == 5);
+	return(write(fd,frame,5) == 5);
 }
 
 bool send_ua_frame(int fd)
@@ -216,7 +221,12 @@ int llopen(int port, int oflag)
 	linkLayer.disconnected = false;
 	linkLayer.oflag = oflag;
 	linkLayer.closed = false;
-	statistics={0,0,0,0};
+
+	statistics.timeout_counter=0;
+	statistics.sent_counter=0;
+	statistics.retry_counter=0;
+	statistics.received_counter=0;
+
 	typedef enum {START = 0,FLAG_RCV,A_RCV,C_RCV,BCC_OK,STOP} State;
 	sprintf(linkLayer.port,SERIAL_PATH,port);
 	debug_print("opening '%s'\n",linkLayer.port);
@@ -254,13 +264,9 @@ int llopen(int port, int oflag)
 			debug_print("llopen: Trial number %d\n",numTransmissions+1);
 			if (!send_set_frame(fd)) return SEND_SET_FAILED;
 			if (receive_ua_frame(fd)) state = STOP;
+
 		}
 		else if (receive_set_frame(fd)) state = STOP;
-		
-		statistics.sent_counter+=1;
-		statistics.received_counter+=2;
-		if(numTransmissions>=1)
-			statistics.retry_counter+=1;
 			
 		numTransmissions++;
 	}
@@ -273,7 +279,6 @@ int llopen(int port, int oflag)
 	if (oflag == RECEIVER)
 	{
 		if (!send_ua_frame(fd)) return -1;
-		statistics.sent_counter+=1;
 		debug_print("ua sent\n");
 	}
 	if (linkLayer.disconnected)
@@ -346,7 +351,10 @@ int llwrite(int fd, char* buffer, int length)
 	{
 		if (numTransmissions > 0) debug_print("llwrite: Trial number %d\n",numTransmissions+1);
 		write(fd,frame,frame_size);
+		statistics.sent_counter++;
 		success = receive_SU_frame(fd,expected);
+		if(numTransmissions>0)
+			statistics.retry_counter++;
 		numTransmissions++;
 	}
 	if (numTransmissions > 1) debug_print("llwrite: Sent\n");
@@ -379,23 +387,23 @@ int llclose(int fd)
 			debug_print("Sending disconnected, trial: %d\n",numTransmissions+1);
 			if (!send_disc_frame(fd)) return -1;
 			success = receive_disc_frame(fd);
-			statistics.sent_counter+=1;
-			statistics.received_counter+=1;
-			if(numTransmissions>=1)
-				statistics.retry_counter+=1;
 			numTransmissions++;
 		}
 		if (success)
 		{
 			if (!send_ua_frame(fd)) return -1;
-			statistics.sent_counter+=1;
 		}
 		else return -1;
 	}
 	else if (!send_disc_frame(fd)) return -1;
 	if (close(fd) < 0) return -1;
 	
-	statistics.sent_counter+=1;
+	printf("Sent: %i\n", statistics.sent_counter);
+	printf("Retry: %i\n", statistics.retry_counter);
+	printf("Received: %i\n", statistics.received_counter);
+	
+	if(linkLayer.oflag == TRANSMITTER)
+		printf("Timeout: %i\n", statistics.timeout_counter);
 
 	linkLayer.closed = true;
 	debug_print("Closed\n");
