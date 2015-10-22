@@ -15,21 +15,55 @@ void set_alarm()
 	alarm(linkLayer.timeout_interval);
 }
 
-int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control, bool use_timeout) {
+
+bool send_SU_frame(int fd, char control)
+{
+	unsigned char frame[5];
+	frame[0] = F;
+	frame[1] = A;
+	frame[2] = control;
+	frame[3] = frame[1]^frame[2];
+	frame[4] = F;
+	return (write(fd,frame,5) == 5);
+}
+
+bool send_ua_frame(int fd)
+{
+	return (send_SU_frame(fd, C_UA) == 1);
+}
+
+bool send_set_frame(int fd)
+{
+	return (send_SU_frame(fd, C_SET) == 1);
+}
+
+bool send_disc_frame(int fd)
+{
+	return (send_SU_frame(fd, C_DISC) == 1);
+}
+
+bool send_rej_frame(int fd, unsigned char r)
+{
+	printf("send REJ\n");
+	return (send_SU_frame(fd, REJ(r)) == 1);
+}
+
+int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned char control, bool use_timeout) {
 	typedef enum {START=0,FLAG_RCV,A_RCV,C_RCV,DATA,DATA_ESCAPE,STOP} State;
 	State state = START;
 	unsigned char bcc2 = 0;
 	unsigned char previous_char = 0;
 	bool use_previous = false;
-	unsigned char received;
+	unsigned char received, received_control;
 	bool reset = false;
 	int i = 0;
-
-	char expected[4];
-	expected[0] = F; 
+	int s = -1, r;
+	if (data) s = control;
+	else if (control == RR(0) || control == RR(1)) s = (control >> 5);
+	r = (s?0:1);
+	char expected[2];
+	expected[0] = F;
 	expected[1] = A;
-	expected[2] = control;
-	expected[3] = expected[1]^expected[2];
 	linkLayer.timeout = false;
 
 	if (use_timeout) set_alarm();
@@ -41,30 +75,68 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control
 		{
 			return READ_ERROR;
 		}
+		#ifdef SIMULATE_ERRORS
+			int random = rand() % 1000;
+			if (random == 1)
+			{
+				printf("Created error\n");
+				received = rand() % 256;
+			}
+		#endif
 		if (received == F)
 		{
 			if (state < DATA) state = FLAG_RCV;
 			else
 			{
-				if (!data) state = STOP;
-				else if (previous_char == bcc2) state = STOP;
-				else
+				if (control != C_DISC && received_control == C_DISC)
 				{
-					debug_print("invalid bcc2, received: %02X, expected: %02X\n", previous_char, bcc2);
-					reset = true;
+					linkLayer.disconnected = true;
+					if (data)
+					{
+						if (llclose(fd) < 0) return LLCLOSE_FAILED;
+						return 0;
+					}
+				}
+				else if (!data) {
+					if (received_control != control)
+					{
+						if (s != -1 && received_control == REJ(s)) return REJECTED;
+						else reset = true;
+					}
+					else state = STOP;
+				}
+				else {
+					if (received_control == N(r)) return UNEXPECTED_N;
+					else if (received_control == N(s) && use_previous && previous_char == bcc2) state = STOP;
+					else
+					{
+						if (use_previous) debug_print("Invalid bcc2, received: %02X, expected: %02X\n", previous_char, bcc2);
+						send_rej_frame(fd, r);
+						reset = true;
+					}
 				}
 			}
 		}
-		else if (state == A_RCV && received == C_DISC) state = STOP;
-		else if (state < DATA && received == expected[state]) state++;
-		else if (state == DATA && !data && received == F) state = STOP;
+		else if (state < A_RCV && received == expected[state]) state++;
+		else if (state == A_RCV) {
+			received_control = received; 
+			state++;
+		}
+		else if (state == C_RCV) {
+			if (received == (expected[1]^received_control))state++;
+			else if (data)
+			{
+				send_rej_frame(fd, r);
+				reset = true;
+			}
+		}
 		else if (state >= DATA && data)
 		{
 			if (state == DATA) {
 				if (use_previous) {
 					if (i >= buffer_size)
 					{
-						perror("receive_frame: Insufficient buffer space.");
+						debug_print("Insufficient buffer space while receiving data frame.\n");
 						reset = true;
 					}
 					else
@@ -86,7 +158,6 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control
 				state = DATA;
 			}
 		}
-		else if (data && state == A_RCV && (received == N(0) || received == N(1))) return UNEXPECTED_N;
 		else reset = true;
 		if (reset)
 		{
@@ -97,26 +168,16 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, char control
 		}
 	}
 	if (use_timeout) alarm(0);
-	if (state == STOP && received == C_DISC)
-	{
-		linkLayer.disconnected = true;
-		if (data)
-		{
-			if (llclose(fd) < 0) return LLCLOSE_FAILED;
-			return 0;
-		}
-	}
 	if (state == STOP) {
-		if(data)
-			statistics.received_counter++;
+		if (data) statistics.received_counter++;
 		return data?i:1;
 	}
 	else return TIMEOUT_FAIL;
 }
 
-int receive_i_frame(int fd, char control, unsigned int buffer_size, char* buffer)
+int receive_i_frame(int fd, char s, unsigned int buffer_size, char* buffer)
 {
-	return receive_frame(fd, true, buffer_size, buffer, control, false);
+	return receive_frame(fd, true, buffer_size, buffer, s, false);
 }
 
 bool receive_set_frame(int fd)
@@ -137,32 +198,6 @@ bool receive_disc_frame(int fd)
 bool receive_SU_frame(int fd, char control)
 {
 	return (receive_frame(fd, false, 0, NULL, control, true) == 1);
-}
-
-bool send_SU_frame(int fd, char control)
-{
-	unsigned char frame[5];
-	frame[0] = F;
-	frame[1] = A;
-	frame[2] = control;
-	frame[3] = frame[1]^frame[2];
-	frame[4] = F;
-	return(write(fd,frame,5) == 5);
-}
-
-bool send_ua_frame(int fd)
-{
-	return (send_SU_frame(fd, C_UA) == 1);
-}
-
-bool send_set_frame(int fd)
-{
-	return (send_SU_frame(fd, C_SET) == 1);
-}
-
-bool send_disc_frame(int fd)
-{
-	return (send_SU_frame(fd, C_DISC) == 1);
 }
 
 int baudrate_to_config_value(int baudrate)
@@ -211,13 +246,14 @@ int setConfig(int baudrate, int data_length, int max_retries, int timeout_interv
 	linkLayer.data_length = data_length;
 	linkLayer.max_retries = max_retries;
 	linkLayer.timeout_interval = timeout_interval;
-	
-
 	return 0;
 }
 
 int llopen(int port, int oflag)
 {
+	#ifdef SIMULATE_ERRORS
+		srand(time(NULL)); 
+	#endif
 	linkLayer.disconnected = false;
 	linkLayer.oflag = oflag;
 	linkLayer.closed = false;
@@ -258,7 +294,6 @@ int llopen(int port, int oflag)
 	
 	while (state != STOP && numTransmissions < linkLayer.max_retries)
 	{
-		
 		if (oflag == TRANSMITTER)
 		{
 			debug_print("llopen: Trial number %d\n",numTransmissions+1);
@@ -341,7 +376,7 @@ int llwrite(int fd, char* buffer, int length)
 	s = (s ? 0 : 1);
 	int frame_size;
 	unsigned char* frame = create_i_frame(buffer, length, s, &frame_size);
-	if (frame == 0) return -1;
+	if (frame == 0) return MALLOC_FAILED;
 
 	int numTransmissions = 0;
 	int success = false;
@@ -360,15 +395,14 @@ int llwrite(int fd, char* buffer, int length)
 	if (numTransmissions > 1) debug_print("llwrite: Sent\n");
 	free(frame);
 	if (success) return length;
-	else return -1;
+	else return TIMEOUT_FAIL;
 }
 
 int llread(int fd, char* buffer, unsigned int buffer_size)
 {
 	static int s = 1;
 	s = (s ? 0 : 1);
-	char control = N(s);
-	int received = receive_i_frame(fd, control, buffer_size, buffer);
+	int received = receive_i_frame(fd, s, buffer_size, buffer);
 	if (received == 0 || linkLayer.closed) return 0;
 	char rr = RR(s?0:1);
 	send_SU_frame(fd,rr);
