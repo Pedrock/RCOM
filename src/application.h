@@ -30,7 +30,9 @@
 #define HEADERS_DO_NOT_MATCH -13
 
 // send_file errors
+// TIMEOUT_FAIL -4
 #define OPEN_FILE_ERROR -21
+
 
 
 struct {

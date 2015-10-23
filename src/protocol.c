@@ -73,16 +73,18 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 		if (res == 0) continue;
 		else if (res < 0)
 		{
+			if (use_timeout) alarm(0);
 			return READ_ERROR;
 		}
-		#ifdef SIMULATE_ERRORS
+		if (linkLayer.simulate_errors)
+		{
 			int random = rand() % 1000;
 			if (random == 1)
 			{
 				printf("Created error\n");
 				received = rand() % 256;
 			}
-		#endif
+		}
 		if (received == F)
 		{
 			if (state < DATA) state = FLAG_RCV;
@@ -93,6 +95,7 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 					linkLayer.disconnected = true;
 					if (data)
 					{
+						if (use_timeout) alarm(0);
 						if (llclose(fd) < 0) return LLCLOSE_FAILED;
 						return 0;
 					}
@@ -102,6 +105,7 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 					{
 						if (s != -1 && received_control == REJ(s)) {
 							statistics.received_rej_counter++;
+							if (use_timeout) alarm(0);
 							return REJECTED;
 						}
 						else reset = true;
@@ -109,7 +113,10 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 					else state = STOP;
 				}
 				else {
-					if (received_control == N(r)) return UNEXPECTED_N;
+					if (received_control == N(r)) {
+						if (use_timeout) alarm(0);
+						return UNEXPECTED_N;
+					}
 					else if (received_control == N(s) && use_previous && previous_char == bcc2) state = STOP;
 					else
 					{
@@ -241,7 +248,7 @@ int baudrate_to_config_value(int baudrate)
 	}
 }
 
-int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval)
+int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval, bool simulate_errors)
 {
 	int value = baudrate_to_config_value(baudrate);
 	if (value > 0) linkLayer.baudrate = value;
@@ -249,14 +256,13 @@ int setConfig(int baudrate, int data_length, int max_retries, int timeout_interv
 	linkLayer.data_length = data_length;
 	linkLayer.max_retries = max_retries;
 	linkLayer.timeout_interval = timeout_interval;
+	linkLayer.simulate_errors = simulate_errors;
 	return 0;
 }
 
 int llopen(int port, int oflag)
 {
-	#ifdef SIMULATE_ERRORS
-		srand(time(NULL)); 
-	#endif
+	srand(time(NULL));
 	linkLayer.disconnected = false;
 	linkLayer.oflag = oflag;
 	linkLayer.closed = false;
@@ -372,8 +378,8 @@ unsigned char* create_i_frame(char* buffer, int length, int s, int* frame_size)
 
 int llwrite(int fd, char* buffer, int length)
 {
-	static int s = 1;
-	s = (s ? 0 : 1);
+	static int s = 0;
+	static bool timeout_occurred = false;
 	int frame_size;
 	unsigned char* frame = create_i_frame(buffer, length, s, &frame_size);
 	if (frame == 0) return MALLOC_FAILED;
@@ -387,14 +393,21 @@ int llwrite(int fd, char* buffer, int length)
 		if (numTransmissions > 0) debug_print("llwrite: Trial number %d\n",numTransmissions+1);
 		write(fd,frame,frame_size);
 		success = receive_SU_frame(fd,expected);
-		if(!numTransmissions) statistics.sent_i_counter++;
-		else statistics.retry_i_counter++;
+		if(numTransmissions || timeout_occurred) statistics.retry_i_counter++;
 		numTransmissions++;
 	}
 	if (numTransmissions > 1) debug_print("llwrite: Sent\n");
 	free(frame);
-	if (success) return length;
-	else return TIMEOUT_FAIL;
+	if (success) {
+		timeout_occurred = false;
+		statistics.sent_i_counter++;
+		s = (s ? 0 : 1);
+		return length;
+	}
+	else {
+		timeout_occurred = true;
+		return TIMEOUT_FAIL;
+	}
 }
 
 int llread(int fd, char* buffer, unsigned int buffer_size)

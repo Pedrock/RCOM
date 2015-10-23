@@ -1,19 +1,37 @@
 #include "application.h"
 
+bool tryAgain()
+{
+	char answer = 0;
+	while (answer != 'y' && answer != 'n')
+	{
+		fseek(stdin,0,SEEK_END);
+		printf("Max number of tries reached. Do you want to try again? (y/n) ");
+		fflush(stdout);
+		answer=tolower(getchar());
+		if (getchar() != '\n') answer = 0;
+	}
+	if (answer == 'y') printf("Sending file...\n");
+	return (answer == 'y');
+}
+
 int send_data_packet(char* buffer, int length, unsigned char N)
 {
 	unsigned char* packet = malloc(4+length);
+	int i, result;
 	if (packet == NULL) return MALLOC_FAILED;
 	packet[0] = DATA_PACKET;
-	packet[1] = N++;
+	packet[1] = N;
 	packet[2] = (uint8_t)(length/256);
 	packet[3] = (uint8_t)(length - packet[2]*256);
-	int i;
 	for (i = 0; i < length; i++)
 	{
 		packet[4+i] = (unsigned char)buffer[i];
 	}
-	int result = llwrite(appLayer.fd,(char*)packet,4+i);
+	do
+	{
+		result = llwrite(appLayer.fd,(char*)packet,4+i);
+	} while (result == TIMEOUT_FAIL && tryAgain());
 	free(packet);
 	return result;
 }
@@ -22,7 +40,7 @@ int send_control_packet(char control, unsigned int file_size, char* filename)
 {
 	char* packet = malloc(sizeof(file_size)+strlen(filename)+10);
 	if (packet == NULL) return MALLOC_FAILED;
-	int i = 0, n;
+	int i = 0, n, result;
 	packet[i++] = control;
 	packet[i++] = 0; //T
 	packet[i++] = sizeof(file_size); //L
@@ -32,7 +50,10 @@ int send_control_packet(char control, unsigned int file_size, char* filename)
 	packet[i++] = strlen(filename)+1; //L
 	strcpy(packet+i,filename);
 	i += strlen(filename)+1;
-	int result = llwrite(appLayer.fd,packet,i);
+	do
+	{
+		result = llwrite(appLayer.fd,packet,i);
+	} while (result == TIMEOUT_FAIL && tryAgain());
 	free(packet);
 	return result;
 }
@@ -78,7 +99,7 @@ int send_file(char* filename, unsigned int data_length)
 			fprintf(stderr, "Max number of tries reached. Check your connection and configuration.\n");
 		else fprintf(stderr, "An error occured while sending data.\n");
 	}
-	return true;
+	return result;
 }
 
 int processControlPacket(unsigned char* packet, char** file_name, unsigned int* file_size)
@@ -182,12 +203,12 @@ int receive_file(unsigned int data_length)
 		}
 		else if (file_size != f_i)
 		{
-			fprintf(stderr, "Error: Headers file size and received size do not match.");
+			fprintf(stderr, "Error: Headers file size and received size do not match.\n");
 			return freeAndReturn(HEADERS_DO_NOT_MATCH,pointers,n_pointers);
 		}
 		if (strcmp(file_name, file_name2) != 0)
 		{
-			fprintf(stderr, "Error: File names do not match.");
+			fprintf(stderr, "Error: File names do not match.\n");
 			return freeAndReturn(HEADERS_DO_NOT_MATCH,pointers,n_pointers);
 		}
 		fclose(output_file);
@@ -198,25 +219,33 @@ int receive_file(unsigned int data_length)
 
 void invalid_args(char* program_name)
 {
-	printf("Usage:\t%s <serial port number> [file_to_send] [-b baudrate] [-l data_length] [-t max_tries] [-i timeout_interval]\n",program_name);
+	printf("Usage:\t%s <serial port number> [file to send] [optional arguments]\n",program_name);
+	printf("Arguments\n");
+	printf("  %s\n","-b INT\t Baud rate to use");
+	printf("  %s\n","-l INT\t Packet data length");
+	printf("  %s\n","-t INT\t Max tries per frame");
+	printf("  %s\n","-i INT\t Timeout interval");
+	printf("  %s\n","-e\t Simulate errors");
     exit(1);
 }
 
-void printConfiguration(int baudrate, int packet_data_length, int max_tries, int timeout_interval)
+void printConfiguration(int baudrate, int packet_data_length, int max_tries, int timeout_interval, bool simulate_errors)
 {
 	printf("\n************ Configuration ************\n");
 	printf("\tBaud Rate: %d\n", baudrate);
 	printf("\tPacket Data Length: %d\n", packet_data_length);
 	printf("\tMax Tries per Packet: %d\n", max_tries);
 	printf("\tTimeout Interval: %d\n", timeout_interval);
+	printf("\tSimulate Errors: %s\n", simulate_errors?"yes":"no");
 	printf("***************************************\n\n");
 }
 
 void configWithArguments(int argc, char** argv, int* port, char** file, int* data_length)
 {
-	const char* valid_args[] = {"-b", "-l", "-t", "-i"};
-	int valid_args_length = 4;
-	int args[4] = {DEFAULT_BAUDRATE,DEFAULT_PACKET_DATA_LENGTH,DEFAULT_MAX_TRIES,DEFAULT_TIMEOUT_INTERVAL};
+	const char* int_args[] = {"-b", "-l", "-t", "-i"};
+	int int_args_length = 4;
+	// Args - baudrate, packet data length, max tries, timeout interval, simulate errors
+	int args[] = {DEFAULT_BAUDRATE,DEFAULT_PACKET_DATA_LENGTH,DEFAULT_MAX_TRIES,DEFAULT_TIMEOUT_INTERVAL,false};
 	*file = NULL;
 	if (argc < 2) invalid_args(argv[0]);
 	if (!isNumber(argv[1]) || !sscanf(argv[1],"%d",port)) invalid_args(argv[0]);
@@ -225,26 +254,32 @@ void configWithArguments(int argc, char** argv, int* port, char** file, int* dat
 	for (; i < argc; i++)
 	{
 		int found_index = -1, k;
-		for (k = 0; k < valid_args_length; k++)
+		for (k = 0; k < int_args_length; k++)
 		{
-			if (strcmp(valid_args[k],argv[i]) == 0)
+			if (strcmp(int_args[k],argv[i]) == 0)
 			{
 				found_index = k;
 				break;
 			}
 		}
-		if (found_index == -1 
-			|| ++i == argc
-			|| !isNumber(argv[i]) 
-			|| !sscanf(argv[i],"%d",&args[found_index]))
-				invalid_args(argv[0]);
+		if (found_index == -1)
+		{
+			if (strcmp(argv[i],"-e") == 0)
+			{
+				args[int_args_length] = true;
+			}
+		}
+		else if (++i == argc
+				|| !isNumber(argv[i]) 
+				|| !sscanf(argv[i],"%d",&args[found_index]))
+					invalid_args(argv[0]);
 	}
-	if (setConfig(args[0],args[1],args[2],args[3]) < 0)
+	if (setConfig(args[0],args[1],args[2],args[3], args[4]) < 0)
     {
     	fprintf(stderr, "Invalid baudrate.\n");
     	exit(-1);
     }
-    printConfiguration(args[0],args[1],args[2],args[3]);
+    printConfiguration(args[0],args[1],args[2],args[3],args[4]);
     *data_length = args[1];
 }
 
@@ -274,26 +309,19 @@ int main(int argc, char** argv)
 	appLayer.fd = llopen(port,appLayer.oflag);
 	if (appLayer.fd < 0)
 	{
-		fprintf(stderr,"Unable to establish connection.\n");
+		if (appLayer.fd == OPEN_FAILED) perror("Opening serial port");
+		else fprintf(stderr,"Unable to establish connection.\n");
 		exit(1);
 	}
 	printf("Connection established.\n");
 	if (appLayer.oflag == TRANSMITTER)
 	{
-		if (!send_file(argv[2],data_length))
-		{
-			fprintf(stderr,"An error occured while sending the file.\n");
-			exit(1);
-		}
+		if (send_file(argv[2],data_length) < 0) exit(1);
 		else printf("File sent with success.\n");
 	}
 	else
 	{
-		int length = receive_file(data_length);
-		if (length < 0)
-		{
-			exit(1);
-		}
+		if (receive_file(data_length) < 0) exit(1);
 		else printf("File received with success.\n");
 	}
 	llclose(appLayer.fd);

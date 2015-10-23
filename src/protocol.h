@@ -30,8 +30,6 @@
 #define RR(r) ((r << 5) | 1)
 #define REJ(r) ((r << 5) | 5)
 
-#define SIMULATE_ERRORS 1
-
 #define SERIAL_PATH "/dev/ttyS%d"
 
 // receive_frame errors 
@@ -67,6 +65,7 @@ struct{
 	unsigned int data_length; // Número de bytes de dados (antes do stuffing) a enviar por pacote de dados
 	unsigned int max_retries; // Número máximo de tentativas em caso de falha
 	unsigned int timeout_interval; // Intervalo de timeout
+	bool simulate_errors; // Simulação de erros
 } linkLayer;
 
 struct statistics_t {
@@ -78,7 +77,7 @@ struct statistics_t {
 	unsigned int received_rej_counter;
 } statistics;
 
-int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval);
+int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval, bool simulate_errors);
 int llopen(int port, int oflag);
 int llwrite(int fd, char* buffer, int length);
 int llread(int fd, char* buffer, unsigned int buffer_size);
