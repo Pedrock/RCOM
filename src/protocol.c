@@ -113,7 +113,7 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 					else if (received_control == N(s) && use_previous && previous_char == bcc2) state = STOP;
 					else
 					{
-						if (use_previous) debug_print("Invalid bcc2, received: %02X, expected: %02X\n", previous_char, bcc2);
+						if (use_previous && previous_char != bcc2) debug_print("Invalid bcc2, received: %02X, expected: %02X\n", previous_char, bcc2);
 						send_rej_frame(fd, r);
 						reset = true;
 					}
@@ -126,7 +126,7 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 			state++;
 		}
 		else if (state == C_RCV) {
-			if (received == (expected[1]^received_control))state++;
+			if (received == (expected[1]^received_control)) state++;
 			else if (data)
 			{
 				send_rej_frame(fd, r);
@@ -399,12 +399,15 @@ int llwrite(int fd, char* buffer, int length)
 
 int llread(int fd, char* buffer, unsigned int buffer_size)
 {
-	static int s = 1;
-	s = (s ? 0 : 1);
+	static int s = 0;
 	int received = receive_i_frame(fd, s, buffer_size, buffer);
+	if (received == UNEXPECTED_N) { 
+		send_SU_frame(fd,RR(s));
+		return UNEXPECTED_N;
+	}
 	if (received == 0 || linkLayer.closed) return 0;
-	char rr = RR(s?0:1);
-	send_SU_frame(fd,rr);
+	send_SU_frame(fd,RR(s?0:1));
+	s = (s ? 0 : 1);
 	return received;
 }
 

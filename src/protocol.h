@@ -41,6 +41,9 @@
 #define TIMEOUT_FAIL -4
 #define REJECTED -5
 
+// llread errors
+#define UNEXPECTED_N -2
+
 // llopen errors
 #define OPEN_FAILED -1         
 #define SERIAL_SETUP_FAILED -2   
