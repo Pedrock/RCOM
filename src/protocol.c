@@ -48,28 +48,152 @@ bool send_rej_frame(int fd, unsigned char r)
 	return (send_SU_frame(fd, REJ(r)) == 1);
 }
 
-int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned char control, bool use_timeout) {
-	typedef enum {START=0,FLAG_RCV,A_RCV,C_RCV,DATA,DATA_ESCAPE,STOP} State;
-	State state = START;
-	unsigned char bcc2 = 0;
-	unsigned char previous_char = 0;
-	bool use_previous = false;
-	unsigned char received, received_control;
-	bool reset = false;
-	int i = 0;
-	int s = -1, r;
-	if (data) s = control;
-	else if (control == RR(0) || control == RR(1)) s = (control >> 5);
-	r = (s?0:1);
-	char expected[2];
-	expected[0] = F;
-	expected[1] = A;
+int stateStart(FrameInfo* info)
+{
+	if (info->received == F) info->state = FLAG_RCV;
+	else info->state = START;
+	return 0;
+}
+
+State stateFlagReceived(FrameInfo* info)
+{
+	if (info->received == F) info->state = FLAG_RCV;
+	else if (info->received == A) info->state = A_RCV;
+	else info->state = START;
+	return 0;
+}
+
+State stateAddressReceived(FrameInfo* info)
+{
+	if (info->received == F) info->state = FLAG_RCV;
+	else
+	{
+		info->received_control = info->received;
+		info->state = C_RCV;
+	}
+	return 0;
+}
+
+State stateControlReceived(FrameInfo* info)
+{
+	if (info->received == F) info->state = FLAG_RCV;
+	else if (info->received == (A^(info->received_control)))
+	{
+		info->state = DATA;
+	}
+	else if (info->receive_data)
+	{
+		send_rej_frame(info->fd, info->r);
+		info->reset = true;
+		info->state = START;
+	}
+	else info->state = START;
+	return 0;
+}
+
+State stateBCCreceived(FrameInfo* info)
+{
+	if (info->received == F)
+	{
+		if (info->received_control != info->expected_control)
+		{
+			if (info->s != -1 && info->received_control == REJ(info->s)) {
+				statistics.received_rej_counter++;
+				if (info->use_timeout) alarm(0);
+				return REJECTED;
+			}
+			else info->reset = true;
+		}
+		else info->state = STOP;
+	}
+	else info->state = START;
+	return 0;
+}
+
+State stateData(FrameInfo* info)
+{
+	if (info->received == F)
+	{
+		if (info->received_control == C_DISC)
+		{
+			linkLayer.disconnected = true;
+			if (info->use_timeout) alarm(0);
+			if (llclose(info->fd) < 0) return LLCLOSE_FAILED;
+			return 0;
+		}
+		else {
+			if (info->received_control == N(info->r)) {
+				if (info->use_timeout) alarm(0);
+				return UNEXPECTED_N;
+			}
+			else if (info->received_control == N(info->s) && info->use_previous && info->previous_char == info->bcc2)
+			{
+				 info->state = STOP;
+			}
+			else
+			{
+				if (info->use_previous && info->previous_char != info->bcc2)
+					debug_print("Invalid bcc2, received: %02X, expected: %02X\n", info->previous_char, info->bcc2);
+				send_rej_frame(info->fd, info->r);
+				info->reset = true;
+			}
+		}
+	}
+	else if (info->state == DATA) 
+	{
+		if (info->use_previous) {
+			if (info->i >= info->buffer_size)
+			{
+				debug_print("Insufficient buffer space while receiving data frame.\n");
+				info->reset = true;
+			}
+			else
+			{
+				info->buffer[info->i++] = info->previous_char;
+				info->bcc2 ^= info->previous_char;
+			}
+		}
+		if (info->received == ESCAPE) info->state = DATA_ESCAPE;
+		else
+		{
+			info->previous_char = info->received;
+			info->use_previous = true;
+		}
+	}
+	else {
+		info->previous_char = ESCAPE_BYTE(info->received);
+		info->use_previous = true;
+		info->state = DATA;
+	}
+	return 0;
+}
+
+int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsigned char expected_control, bool use_timeout) {
+	FrameInfo frame_info;
+
+	frame_info.state = START;
+	frame_info.bcc2 = 0;
+	frame_info.previous_char = 0;
+	frame_info.use_previous = false;
+	frame_info.reset = false;
+	frame_info.i = 0;
+	frame_info.s = -1;
+	frame_info.use_timeout = use_timeout;
+	frame_info.fd = fd;
+	frame_info.buffer = buffer;
+	frame_info.buffer_size = buffer_size;
+	frame_info.receive_data = receive_data;
+	frame_info.expected_control = expected_control;
+	if (receive_data) frame_info.s = expected_control;
+	else if (expected_control == RR(0) || expected_control == RR(1)) frame_info.s = (expected_control >> 5); // Tirar
+	frame_info.r = (frame_info.s?0:1);
+
 	linkLayer.timeout = false;
 
 	if (use_timeout) set_alarm();
-	while (state != STOP && !linkLayer.timeout)
+	while (frame_info.state != STOP && !linkLayer.timeout)
 	{
-		int res = read(fd,&received,1);
+		int res = read(fd,&frame_info.received,1);
 		if (res == 0) continue;
 		else if (res < 0)
 		{
@@ -82,105 +206,31 @@ int receive_frame(int fd, bool data, int buffer_size, char* buffer, unsigned cha
 			if (random == 1)
 			{
 				printf("Created error\n");
-				received = rand() % 256;
+				frame_info.received = rand() % 256;
 			}
 		}
-		if (received == F)
+		
+		int result;
+		if (frame_info.state == START) result = stateStart(&frame_info);
+		else if (frame_info.state == FLAG_RCV) result = stateFlagReceived(&frame_info);
+		else if (frame_info.state == A_RCV) result = stateAddressReceived(&frame_info);
+		else if (frame_info.state == C_RCV) result = stateControlReceived(&frame_info);
+		else if (frame_info.state == DATA && !receive_data) result = stateBCCreceived(&frame_info);
+		else if (frame_info.state == DATA || frame_info.state == DATA_ESCAPE) result = stateData(&frame_info);
+		if (result) return result;
+
+		if (frame_info.reset)
 		{
-			if (state < DATA) state = FLAG_RCV;
-			else
-			{
-				if (control != C_DISC && received_control == C_DISC)
-				{
-					linkLayer.disconnected = true;
-					if (data)
-					{
-						if (use_timeout) alarm(0);
-						if (llclose(fd) < 0) return LLCLOSE_FAILED;
-						return 0;
-					}
-				}
-				else if (!data) {
-					if (received_control != control)
-					{
-						if (s != -1 && received_control == REJ(s)) {
-							statistics.received_rej_counter++;
-							if (use_timeout) alarm(0);
-							return REJECTED;
-						}
-						else reset = true;
-					}
-					else state = STOP;
-				}
-				else {
-					if (received_control == N(r)) {
-						if (use_timeout) alarm(0);
-						return UNEXPECTED_N;
-					}
-					else if (received_control == N(s) && use_previous && previous_char == bcc2) state = STOP;
-					else
-					{
-						if (use_previous && previous_char != bcc2) debug_print("Invalid bcc2, received: %02X, expected: %02X\n", previous_char, bcc2);
-						send_rej_frame(fd, r);
-						reset = true;
-					}
-				}
-			}
-		}
-		else if (state < A_RCV && received == expected[state]) state++;
-		else if (state == A_RCV) {
-			received_control = received; 
-			state++;
-		}
-		else if (state == C_RCV) {
-			if (received == (expected[1]^received_control)) state++;
-			else if (data)
-			{
-				send_rej_frame(fd, r);
-				reset = true;
-			}
-		}
-		else if (state >= DATA && data)
-		{
-			if (state == DATA) {
-				if (use_previous) {
-					if (i >= buffer_size)
-					{
-						debug_print("Insufficient buffer space while receiving data frame.\n");
-						reset = true;
-					}
-					else
-					{
-						buffer[i++] = previous_char;
-						bcc2 ^= previous_char;
-					}
-				}
-				if (received == ESCAPE) state = DATA_ESCAPE;
-				else
-				{
-					previous_char = received;
-					use_previous = true;
-				}
-			}
-			else if (state == DATA_ESCAPE) {
-				previous_char = ESCAPE_BYTE(received);
-				use_previous = true;
-				state = DATA;
-			}
-		}
-		else reset = true;
-		if (reset)
-		{
-			state = START;
-			bcc2 = i = previous_char = 0;
-			use_previous = false;
-			reset = false;
+			frame_info.state = START;
+			frame_info.bcc2 = frame_info.i = frame_info.previous_char = 0;
+			frame_info.use_previous = false;
+			frame_info.reset = false;
 		}
 	}
 	if (use_timeout) alarm(0);
-	if (state == STOP) {
-		if (data) statistics.received_i_counter++;
-		return data?i:1;
+	if (frame_info.state == STOP) {
+		if (receive_data) statistics.received_i_counter++;
+		return receive_data?frame_info.i:1;
 	}
 	else return TIMEOUT_FAIL;
 }
@@ -269,7 +319,6 @@ int llopen(int port, int oflag)
 
 	statistics = (struct statistics_t){0,0,0,0,0,0};
 
-	typedef enum {START = 0,FLAG_RCV,A_RCV,C_RCV,BCC_OK,STOP} State;
 	sprintf(linkLayer.port,SERIAL_PATH,port);
 	debug_print("opening '%s'\n",linkLayer.port);
 	int fd = open(linkLayer.port, O_RDWR | O_NOCTTY);
@@ -295,23 +344,23 @@ int llopen(int port, int oflag)
 		return SERIAL_SETUP_FAILED;
 	}
 
-	State state = START;
+	bool success = false;
 	int numTransmissions = 0;
 	
-	while (state != STOP && numTransmissions < linkLayer.max_retries)
+	while (!success && numTransmissions < linkLayer.max_retries)
 	{
 		if (oflag == TRANSMITTER)
 		{
 			debug_print("llopen: Trial number %d\n",numTransmissions+1);
 			if (!send_set_frame(fd)) return SEND_SET_FAILED;
-			if (receive_ua_frame(fd)) state = STOP;
+			if (receive_ua_frame(fd)) success = true;
 
 		}
-		else if (receive_set_frame(fd)) state = STOP;
+		else if (receive_set_frame(fd)) success = true;
 			
 		numTransmissions++;
 	}
-	if (state != STOP)
+	if (!success)
 	{
 		debug_print("llopen failed\n");
 		close(fd);

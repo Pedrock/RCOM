@@ -77,6 +77,27 @@ struct statistics_t {
 	unsigned int received_rej_counter;
 } statistics;
 
+typedef enum {START=0,FLAG_RCV,A_RCV,C_RCV,DATA,DATA_ESCAPE,STOP} State;
+
+typedef struct {
+	State state;
+	int fd;
+	bool receive_data;
+	bool use_timeout;
+	unsigned char bcc2;
+	unsigned char previous_char;
+	bool use_previous;
+	unsigned char received;
+	unsigned char received_control;
+	unsigned char expected_control;
+	bool reset;
+	int i;
+	int s;
+	int r;
+	char* buffer;
+	int buffer_size;
+} FrameInfo;
+
 int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval, bool simulate_errors);
 int llopen(int port, int oflag);
 int llwrite(int fd, char* buffer, int length);
