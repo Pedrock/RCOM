@@ -1,11 +1,17 @@
 #include "protocol.h"
 
+/**
+  * Função chamada pelo alarme
+  */
 void on_alarm()
 {
 	linkLayer.timeout = true;
 	statistics.timeout_counter++;
 }
 
+/**
+  * Função para ativar o alarme
+  */
 void set_alarm()
 {
 	struct sigaction sa;
@@ -15,7 +21,9 @@ void set_alarm()
 	alarm(linkLayer.timeout_interval);
 }
 
-
+/**
+  * Função para enviar uma trama do tipo S ou do tipo U, com um dado controlo
+  */
 bool send_SU_frame(int fd, char control)
 {
 	unsigned char frame[5];
@@ -27,27 +35,42 @@ bool send_SU_frame(int fd, char control)
 	return (write(fd,frame,5) == 5);
 }
 
+/**
+  * Função para enviar uma trama UA
+  */
 bool send_ua_frame(int fd)
 {
 	return (send_SU_frame(fd, C_UA) == 1);
 }
 
+/**
+  * Função para enviar uma trama SET
+  */
 bool send_set_frame(int fd)
 {
 	return (send_SU_frame(fd, C_SET) == 1);
 }
 
+/**
+  * Função para enviar uma trama DISC
+  */
 bool send_disc_frame(int fd)
 {
 	return (send_SU_frame(fd, C_DISC) == 1);
 }
 
+/**
+  * Função para enviar uma trama REJ
+  */
 bool send_rej_frame(int fd, unsigned char r)
 {
 	statistics.sent_rej_counter++;
 	return (send_SU_frame(fd, REJ(r)) == 1);
 }
 
+/**
+  * Função para o estado inicial
+  */
 int stateStart(FrameInfo* info)
 {
 	if (info->received == F) info->state = FLAG_RCV;
@@ -55,7 +78,10 @@ int stateStart(FrameInfo* info)
 	return 0;
 }
 
-State stateFlagReceived(FrameInfo* info)
+/**
+  * Função para estado de flag recebida
+  */
+int stateFlagReceived(FrameInfo* info)
 {
 	if (info->received == F) info->state = FLAG_RCV;
 	else if (info->received == A) info->state = A_RCV;
@@ -63,7 +89,10 @@ State stateFlagReceived(FrameInfo* info)
 	return 0;
 }
 
-State stateAddressReceived(FrameInfo* info)
+/**
+  * Função para estado de endereço recebido
+  */
+int stateAddressReceived(FrameInfo* info)
 {
 	if (info->received == F) info->state = FLAG_RCV;
 	else
@@ -74,7 +103,10 @@ State stateAddressReceived(FrameInfo* info)
 	return 0;
 }
 
-State stateControlReceived(FrameInfo* info)
+/**
+  * Função para estado de controlo recebido
+  */
+int stateControlReceived(FrameInfo* info)
 {
 	if (info->received == F) info->state = FLAG_RCV;
 	else if (info->received == (A^(info->received_control)))
@@ -85,19 +117,22 @@ State stateControlReceived(FrameInfo* info)
 	{
 		send_rej_frame(info->fd, info->r);
 		info->reset = true;
-		info->state = START;
 	}
 	else info->state = START;
 	return 0;
 }
 
-State stateBCCreceived(FrameInfo* info)
+/**
+  * Função para estado de BCC recebido (usada quando não é para receber dados)
+  */
+int stateBCCreceived(FrameInfo* info)
 {
 	if (info->received == F)
 	{
 		if (info->received_control != info->expected_control)
 		{
-			if (info->s != -1 && info->received_control == REJ(info->s)) {
+			// se esperava RR e recebeu REJ
+			if ((info->expected_control & ~(1 << 5)) == 1 && info->received_control == REJ(info->s)) { 
 				statistics.received_rej_counter++;
 				if (info->use_timeout) alarm(0);
 				return REJECTED;
@@ -110,7 +145,10 @@ State stateBCCreceived(FrameInfo* info)
 	return 0;
 }
 
-State stateData(FrameInfo* info)
+/**
+  * Função para estados de recepção de dados (DATA e DATA_ESCAPE)
+  */
+int stateData(FrameInfo* info)
 {
 	if (info->received == F)
 	{
@@ -126,7 +164,7 @@ State stateData(FrameInfo* info)
 				if (info->use_timeout) alarm(0);
 				return UNEXPECTED_N;
 			}
-			else if (info->received_control == N(info->s) && info->use_previous && info->previous_char == info->bcc2)
+			else if (info->received_control == info->expected_control && info->use_previous && info->previous_char == info->bcc2)
 			{
 				 info->state = STOP;
 			}
@@ -168,6 +206,9 @@ State stateData(FrameInfo* info)
 	return 0;
 }
 
+/**
+  * Função para receber uma trama
+  */
 int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsigned char expected_control, bool use_timeout) {
 	FrameInfo frame_info;
 
@@ -177,15 +218,13 @@ int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsi
 	frame_info.use_previous = false;
 	frame_info.reset = false;
 	frame_info.i = 0;
-	frame_info.s = -1;
 	frame_info.use_timeout = use_timeout;
 	frame_info.fd = fd;
 	frame_info.buffer = buffer;
 	frame_info.buffer_size = buffer_size;
 	frame_info.receive_data = receive_data;
 	frame_info.expected_control = expected_control;
-	if (receive_data) frame_info.s = expected_control;
-	else if (expected_control == RR(0) || expected_control == RR(1)) frame_info.s = (expected_control >> 5); // Tirar
+	frame_info.s = (expected_control >> 5); // Tirar
 	frame_info.r = (frame_info.s?0:1);
 
 	linkLayer.timeout = false;
@@ -235,31 +274,49 @@ int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsi
 	else return TIMEOUT_FAIL;
 }
 
+/**
+  * Função para receber uma trama I
+  */
 int receive_i_frame(int fd, char s, unsigned int buffer_size, char* buffer)
 {
-	return receive_frame(fd, true, buffer_size, buffer, s, false);
+	return receive_frame(fd, true, buffer_size, buffer, N(s), false);
 }
 
+/**
+  * Função para receber uma trama SET
+  */
 bool receive_set_frame(int fd)
 {
 	return (receive_frame(fd, false, 0, NULL, C_SET, false) == 1);
 }
 
+/**
+  * Função para receber uma trama UA
+  */
 bool receive_ua_frame(int fd)
 {
 	return (receive_frame(fd, false, 0, NULL, C_UA, true) == 1);
 }
 
+/**
+  * Função para receber uma trama DISC
+  */
 bool receive_disc_frame(int fd)
 {
 	return (receive_frame(fd, false, 0, NULL, C_DISC, true) == 1);
 }
 
-bool receive_SU_frame(int fd, char control)
+/**
+  * Função para receber uma trama RR, para um dado r
+  */
+bool receive_RR_frame(int fd, int r)
 {
-	return (receive_frame(fd, false, 0, NULL, control, true) == 1);
+	return (receive_frame(fd, false, 0, NULL, RR(r), true) == 1);
 }
 
+/**
+  * Função para converter valores de baudrate para valores de configuração aceites pelo driver da porta série
+  */
 int baudrate_to_config_value(int baudrate)
 {
 	switch (baudrate)
@@ -298,6 +355,9 @@ int baudrate_to_config_value(int baudrate)
 	}
 }
 
+/**
+  * Função para inicialização do link layer
+  */
 int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval, bool simulate_errors)
 {
 	int value = baudrate_to_config_value(baudrate);
@@ -310,6 +370,9 @@ int setConfig(int baudrate, int data_length, int max_retries, int timeout_interv
 	return 0;
 }
 
+/**
+  * Estabelece a ligação entre os dois computadores
+  */
 int llopen(int port, int oflag)
 {
 	srand(time(NULL));
@@ -380,6 +443,9 @@ int llopen(int port, int oflag)
 	return fd;
 }
 
+/**
+  * Cria uma trama de dados (I) para um dado buffer de dados
+  */
 unsigned char* create_i_frame(char* buffer, int length, int s, int* frame_size)
 {
 	int reserved_space = (int)(1.1*length+0.5)+8;
@@ -425,6 +491,9 @@ unsigned char* create_i_frame(char* buffer, int length, int s, int* frame_size)
 	return frame;
 }
 
+/**
+  * Envia uma trama de dados e espera por uma resposta positiva, fazendo várias tentativas se necessário
+  */
 int llwrite(int fd, char* buffer, int length)
 {
 	static int s = 0;
@@ -435,13 +504,13 @@ int llwrite(int fd, char* buffer, int length)
 
 	int numTransmissions = 0;
 	int success = false;
-	char expected = RR(s?0:1);
+	int r = s?0:1;
 
 	while (!success && numTransmissions < linkLayer.max_retries)
 	{
 		if (numTransmissions > 0) debug_print("llwrite: Trial number %d\n",numTransmissions+1);
 		write(fd,frame,frame_size);
-		success = receive_SU_frame(fd,expected);
+		success = receive_RR_frame(fd,r);
 		if(numTransmissions || timeout_occurred) statistics.retry_i_counter++;
 		numTransmissions++;
 	}
@@ -459,6 +528,9 @@ int llwrite(int fd, char* buffer, int length)
 	}
 }
 
+/**
+  * Recebe uma trama de dados e envia uma resposta
+  */
 int llread(int fd, char* buffer, unsigned int buffer_size)
 {
 	static int s = 0;
@@ -473,6 +545,9 @@ int llread(int fd, char* buffer, unsigned int buffer_size)
 	return received;
 }
 
+/**
+  * Fecha a ligação
+  */
 int llclose(int fd)
 {
 	if (linkLayer.closed) return 0;
@@ -501,6 +576,9 @@ int llclose(int fd)
 	return 1;
 }
 
+/**
+  * Devolve as estatísticas
+  */
 struct statistics_t getStatistics()
 {
 	return statistics;

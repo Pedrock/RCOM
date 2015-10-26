@@ -69,33 +69,33 @@ struct{
 } linkLayer;
 
 struct statistics_t {
-	unsigned int sent_i_counter;
-	unsigned int retry_i_counter;
-	unsigned int received_i_counter;
-	unsigned int timeout_counter;
-	unsigned int sent_rej_counter;
-	unsigned int received_rej_counter;
+	unsigned int sent_i_counter; // Número de tramas I únicas recebidas
+	unsigned int retry_i_counter; // Número de tramas I reenviadas
+	unsigned int received_i_counter; // Número de tramas I recebidas
+	unsigned int timeout_counter; // Número de ocorrências de timeout
+	unsigned int sent_rej_counter; // Número de tramas REJ enviadas
+	unsigned int received_rej_counter; // Número de tramas REJ recebidas
 } statistics;
 
-typedef enum {START=0,FLAG_RCV,A_RCV,C_RCV,DATA,DATA_ESCAPE,STOP} State;
+typedef enum {START=0,FLAG_RCV,A_RCV,C_RCV,DATA,DATA_ESCAPE,STOP} State; // Estados possíveis na máquina de estados
 
 typedef struct {
-	State state;
-	int fd;
-	bool receive_data;
-	bool use_timeout;
-	unsigned char bcc2;
-	unsigned char previous_char;
-	bool use_previous;
-	unsigned char received;
-	unsigned char received_control;
-	unsigned char expected_control;
-	bool reset;
-	int i;
-	int s;
-	int r;
-	char* buffer;
-	int buffer_size;
+	State state; // Estado atual
+	int fd; // File descriptor da porta série
+	bool receive_data; // Indica se é para receber dados
+	bool use_timeout; // Indica se é para usar timeout
+	unsigned char bcc2; // BCC2 calculado
+	unsigned char previous_char; // Caracter recebido anteriormente
+	bool use_previous; // Indica se já foi recebido um caracter anteriormente
+	unsigned char received; // Caracter recebido
+	unsigned char received_control; // Controlo recebido
+	unsigned char expected_control; // Controlo esperado
+	bool reset; // Indica se é para reeniciar a máquina de estados
+	int i; // Índice a escrever no buffer
+	int s; // Valor de s, para por exemplo N(s)
+	int r; // Valor de r, para por exemplo RR(r)
+	char* buffer; // Buffer de dados
+	int buffer_size; // Tamanho do buffer de dados
 } FrameInfo;
 
 int setConfig(int baudrate, int data_length, int max_retries, int timeout_interval, bool simulate_errors);
