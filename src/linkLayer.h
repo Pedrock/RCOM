@@ -33,7 +33,7 @@
 #define SERIAL_PATH "/dev/ttyS%d"
 
 // receive_frame errors 
-#define READ_ERROR -1
+#define READ_FAILED -1
 #define UNEXPECTED_N -2
 #define LLCLOSE_FAILED -3
 #define TIMEOUT_FAIL -4
@@ -51,6 +51,7 @@
 
 // llwrite errors
 #define MALLOC_FAILED -1
+#define RESPONSE_ERROR -2
 //#define TIMEOUT_FAIL -4
 
 struct{

@@ -1,4 +1,4 @@
-#include "protocol.h"
+#include "linkLayer.h"
 
 /**
   * Função chamada pelo alarme
@@ -113,12 +113,12 @@ int stateControlReceived(FrameInfo* info)
 	{
 		info->state = DATA;
 	}
-	else if (info->receive_data)
+	else
 	{
-		send_rej_frame(info->fd, info->r);
-		info->reset = true;
+		if (info->receive_data) 
+			send_rej_frame(info->fd, info->r);
+		info->state = START;
 	}
-	else info->state = START;
 	return 0;
 }
 
@@ -137,7 +137,7 @@ int stateBCCreceived(FrameInfo* info)
 				if (info->use_timeout) alarm(0);
 				return REJECTED;
 			}
-			else info->reset = true;
+			else info->state = START;
 		}
 		else info->state = STOP;
 	}
@@ -159,22 +159,21 @@ int stateData(FrameInfo* info)
 			if (llclose(info->fd) < 0) return LLCLOSE_FAILED;
 			return 0;
 		}
-		else {
-			if (info->received_control == N(info->r)) {
-				if (info->use_timeout) alarm(0);
-				return UNEXPECTED_N;
-			}
-			else if (info->received_control == info->expected_control && info->use_previous && info->previous_char == info->bcc2)
-			{
-				 info->state = STOP;
-			}
-			else
-			{
-				if (info->use_previous && info->previous_char != info->bcc2)
-					debug_print("Invalid bcc2, received: %02X, expected: %02X\n", info->previous_char, info->bcc2);
-				send_rej_frame(info->fd, info->r);
-				info->reset = true;
-			}
+		else if (info->received_control == N(info->r)) 
+		{
+			if (info->use_timeout) alarm(0);
+			return UNEXPECTED_N;
+		}
+		else if (info->received_control == info->expected_control && info->use_previous && info->previous_char == info->bcc2)
+		{
+			info->state = STOP;
+		}
+		else
+		{
+			if (info->use_previous && info->previous_char != info->bcc2)
+				debug_print("Invalid bcc2, received: %02X, expected: %02X\n", info->previous_char, info->bcc2);
+			send_rej_frame(info->fd, info->r);
+			info->reset = true;
 		}
 	}
 	else if (info->state == DATA) 
@@ -198,7 +197,7 @@ int stateData(FrameInfo* info)
 			info->use_previous = true;
 		}
 	}
-	else {
+	else { // state DATA_ESCAPE
 		info->previous_char = ESCAPE_BYTE(info->received);
 		info->use_previous = true;
 		info->state = DATA;
@@ -225,7 +224,7 @@ int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsi
 	frame_info.receive_data = receive_data;
 	frame_info.expected_control = expected_control;
 	frame_info.s = (expected_control >> 5); // Tirar
-	frame_info.r = (frame_info.s?0:1);
+	frame_info.r = !frame_info.s;
 
 	linkLayer.timeout = false;
 
@@ -237,7 +236,7 @@ int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsi
 		else if (res < 0)
 		{
 			if (use_timeout) alarm(0);
-			return READ_ERROR;
+			return READ_FAILED;
 		}
 		if (linkLayer.simulate_errors)
 		{
@@ -261,7 +260,7 @@ int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsi
 		if (frame_info.reset)
 		{
 			frame_info.state = START;
-			frame_info.bcc2 = frame_info.i = frame_info.previous_char = 0;
+			frame_info.bcc2 = frame_info.i = 0;
 			frame_info.use_previous = false;
 			frame_info.reset = false;
 		}
@@ -309,9 +308,9 @@ bool receive_disc_frame(int fd)
 /**
   * Função para receber uma trama RR, para um dado r
   */
-bool receive_RR_frame(int fd, int r)
+int receive_RR_frame(int fd, int r)
 {
-	return (receive_frame(fd, false, 0, NULL, RR(r), true) == 1);
+	return receive_frame(fd, false, 0, NULL, RR(r), true);
 }
 
 /**
@@ -503,14 +502,16 @@ int llwrite(int fd, char* buffer, int length)
 	if (frame == 0) return MALLOC_FAILED;
 
 	int numTransmissions = 0;
-	int success = false;
-	int r = s?0:1;
+	bool success = false;
+	int r = !s;
 
 	while (!success && numTransmissions < linkLayer.max_retries)
 	{
 		if (numTransmissions > 0) debug_print("llwrite: Trial number %d\n",numTransmissions+1);
 		write(fd,frame,frame_size);
-		success = receive_RR_frame(fd,r);
+		int result = receive_RR_frame(fd,r);
+		if (result > 0) success = true;
+		else if (result == LLCLOSE_FAILED) return result;
 		if(numTransmissions || timeout_occurred) statistics.retry_i_counter++;
 		numTransmissions++;
 	}
@@ -519,7 +520,7 @@ int llwrite(int fd, char* buffer, int length)
 	if (success) {
 		timeout_occurred = false;
 		statistics.sent_i_counter++;
-		s = (s ? 0 : 1);
+		s = !s;
 		return length;
 	}
 	else {
@@ -540,8 +541,8 @@ int llread(int fd, char* buffer, unsigned int buffer_size)
 		return UNEXPECTED_N;
 	}
 	if (received == 0 || linkLayer.closed) return 0;
-	send_SU_frame(fd,RR(s?0:1));
-	s = (s ? 0 : 1);
+	send_SU_frame(fd,RR(!s));
+	s = !s;
 	return received;
 }
 

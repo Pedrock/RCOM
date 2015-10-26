@@ -1,6 +1,6 @@
 ﻿CC = gcc
 CFLAGS = -Wall
-SRCS = application.c protocol.c utilities.c
+SRCS = application.c linkLayer.c utilities.c
 OBJS = $(SRCS:.c=.o)
 MAIN = application
 

@@ -11,7 +11,7 @@
 #include <ctype.h>
 #include <sys/time.h>
 
-#include "protocol.h"
+#include "linkLayer.h"
 #include "utilities.h"
 
 
