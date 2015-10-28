@@ -69,6 +69,14 @@ bool send_rej_frame(int fd, unsigned char r)
 }
 
 /**
+  * Função para enviar uma trama RR
+  */
+bool send_rr_frame(int fd, unsigned char r)
+{
+	return (send_SU_frame(fd, RR(r)) == 1);
+}
+
+/**
   * Função para o estado inicial
   */
 int stateStart(FrameInfo* info)
@@ -223,7 +231,7 @@ int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsi
 	frame_info.buffer_size = buffer_size;
 	frame_info.receive_data = receive_data;
 	frame_info.expected_control = expected_control;
-	frame_info.s = (expected_control >> 5); // Tirar
+	frame_info.s = (expected_control >> 5);
 	frame_info.r = !frame_info.s;
 
 	linkLayer.timeout = false;
@@ -248,14 +256,18 @@ int receive_frame(int fd, bool receive_data, int buffer_size, char* buffer, unsi
 			}
 		}
 		
-		int result;
-		if (frame_info.state == START) result = stateStart(&frame_info);
-		else if (frame_info.state == FLAG_RCV) result = stateFlagReceived(&frame_info);
-		else if (frame_info.state == A_RCV) result = stateAddressReceived(&frame_info);
-		else if (frame_info.state == C_RCV) result = stateControlReceived(&frame_info);
-		else if (frame_info.state == DATA && !receive_data) result = stateBCCreceived(&frame_info);
-		else if (frame_info.state == DATA || frame_info.state == DATA_ESCAPE) result = stateData(&frame_info);
-		if (result) return result;
+		int error;
+		if (frame_info.state == START) error = stateStart(&frame_info);
+		else if (frame_info.state == FLAG_RCV) error = stateFlagReceived(&frame_info);
+		else if (frame_info.state == A_RCV) error = stateAddressReceived(&frame_info);
+		else if (frame_info.state == C_RCV) error = stateControlReceived(&frame_info);
+		else if (frame_info.state == DATA && !receive_data) error = stateBCCreceived(&frame_info);
+		else if (frame_info.state == DATA || frame_info.state == DATA_ESCAPE) error = stateData(&frame_info);
+		if (error)
+		{
+			if (use_timeout) alarm(0);
+			return error;
+		}
 
 		if (frame_info.reset)
 		{
@@ -453,40 +465,34 @@ unsigned char* create_i_frame(char* buffer, int length, int s, int* frame_size)
 	frame[0] = F;
 	frame[1] = A;
 	frame[2] = N(s);
-	char S = frame[1] ^ frame[2];
-	int p = 4, i;
-	if (S == F || S == ESCAPE)
-	{
-		frame[3] = ESCAPE;
-		frame[4] = ESCAPE_BYTE(S);
-		p = 5;
-	}
-	else frame[3] = S;
+	int f = 4; // Índice na trama
+	int i; // Índice no buffer de dados
+	frame[3] = frame[1] ^ frame[2];
 	unsigned char bcc2 = 0;
 	for (i = 0; i < length; i++)
 	{
 		bcc2 ^= buffer[i];
-		if (p + 2 >= reserved_space)
+		if (f + 1 >= reserved_space)
 		{
-			reserved_space += (int)(1.1*(length-i)+0.5);
+			reserved_space += (int)(1.1*(length-i)+1.5);
 			frame = realloc(frame,reserved_space);
 			if (frame == 0) return NULL;
 		}
 		if (buffer[i] == F || buffer[i] == ESCAPE)
 		{
-			frame[p++] = ESCAPE;
-			frame[p++] = ESCAPE_BYTE(buffer[i]);
+			frame[f++] = ESCAPE;
+			frame[f++] = ESCAPE_BYTE(buffer[i]);
 		}
-		else frame[p++] = buffer[i];
+		else frame[f++] = buffer[i];
 	}
 	if (bcc2 == F || bcc2 == ESCAPE)
 	{
-		frame[p++] = ESCAPE;
-		frame[p++] = ESCAPE_BYTE(bcc2);
+		frame[f++] = ESCAPE;
+		frame[f++] = ESCAPE_BYTE(bcc2);
 	}
-	else frame[p++] = bcc2;
-	frame[p++] = F;
-	*frame_size = p;
+	else frame[f++] = bcc2;
+	frame[f++] = F;
+	*frame_size = f;
 	return frame;
 }
 
@@ -537,11 +543,11 @@ int llread(int fd, char* buffer, unsigned int buffer_size)
 	static int s = 0;
 	int received = receive_i_frame(fd, s, buffer_size, buffer);
 	if (received == UNEXPECTED_N) { 
-		send_SU_frame(fd,RR(s));
+		send_rr_frame(fd,s);
 		return UNEXPECTED_N;
 	}
 	if (received == 0 || linkLayer.closed) return 0;
-	send_SU_frame(fd,RR(!s));
+	send_rr_frame(fd,!s);
 	s = !s;
 	return received;
 }
@@ -570,8 +576,12 @@ int llclose(int fd)
 		else return -1;
 	}
 	else if (!send_disc_frame(fd)) return -1;
+	tcflush(fd, TCOFLUSH);
+	if (tcsetattr(fd,TCSANOW,&linkLayer.oldtio) == -1) {
+		perror("tcsetattr");
+		return -1;
+	}
 	if (close(fd) < 0) return -1;
-
 	linkLayer.closed = true;
 	debug_print("Closed\n");
 	return 1;

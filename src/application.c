@@ -18,19 +18,16 @@ bool tryAgain()
 int send_data_packet(char* buffer, int length, unsigned char N)
 {
 	unsigned char* packet = malloc(4+length);
-	int i, result;
+	int result;
 	if (packet == NULL) return MALLOC_FAILED;
 	packet[0] = DATA_PACKET;
 	packet[1] = N;
-	packet[2] = (uint8_t)(length/256);
-	packet[3] = (uint8_t)(length - packet[2]*256);
-	for (i = 0; i < length; i++)
-	{
-		packet[4+i] = (unsigned char)buffer[i];
-	}
+	packet[2] = (uint8_t)(length / 256);
+	packet[3] = (uint8_t)(length % 256);
+	memcpy(packet+4,buffer,length);
 	do
 	{
-		result = llwrite(appLayer.fd,(char*)packet,4+i);
+		result = llwrite(appLayer.fd,(char*)packet,length+4);
 	} while (result == TIMEOUT_FAIL && tryAgain());
 	free(packet);
 	return result;
@@ -198,7 +195,7 @@ int receive_file(unsigned int data_length)
 		if (result < 0) return freeAndReturn(result,pointers,n_pointers);
 		if (file_size != file_size2)
 		{
-			fprintf(stderr, "Error: Headers file sizes do not match\n");
+			fprintf(stderr, "Error: Headers file sizes do not match.\n");
 			return freeAndReturn(HEADERS_DO_NOT_MATCH,pointers,n_pointers);
 		}
 		else if (file_size != f_i)
@@ -225,7 +222,7 @@ void invalid_args(char* program_name)
 	printf("  %s\n","-l INT\t Packet data length");
 	printf("  %s\n","-t INT\t Max tries per frame");
 	printf("  %s\n","-i INT\t Timeout interval");
-	printf("  %s\n","-e\t Simulate errors");
+	printf("  %s\n","-e\t\t Simulate errors");
     exit(1);
 }
 
@@ -268,6 +265,7 @@ void configWithArguments(int argc, char** argv, int* port, char** file, int* dat
 			{
 				args[int_args_length] = true;
 			}
+			else invalid_args(argv[0]);
 		}
 		else if (++i == argc
 				|| !isNumber(argv[i]) 
