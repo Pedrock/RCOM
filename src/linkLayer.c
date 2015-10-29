@@ -558,10 +558,10 @@ int llread(int fd, char* buffer, unsigned int buffer_size)
 int llclose(int fd)
 {
 	if (linkLayer.closed) return 0;
+	bool success = false;
+	int numTransmissions = 0;
 	if (linkLayer.oflag == TRANSMITTER)
 	{
-		bool success = false;
-		int numTransmissions = 0;
 		while (!success && numTransmissions < linkLayer.max_retries)
 		{
 			debug_print("Sending disconnected, trial: %d\n",numTransmissions+1);
@@ -575,7 +575,16 @@ int llclose(int fd)
 		}
 		else return -1;
 	}
-	else if (!send_disc_frame(fd)) return -1;
+	else
+	{
+		int numTransmissions = 0;
+		while (!success && numTransmissions < linkLayer.max_retries)
+		{
+			success = receive_disc_frame(fd);
+			numTransmissions++;
+		}
+		if (!send_disc_frame(fd)) return -1;
+	}
 	tcflush(fd, TCOFLUSH);
 	if (tcsetattr(fd,TCSANOW,&linkLayer.oldtio) == -1) {
 		perror("tcsetattr");
