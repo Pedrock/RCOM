@@ -314,7 +314,9 @@ bool receive_ua_frame(int fd)
   */
 bool receive_disc_frame(int fd)
 {
-	return (receive_frame(fd, false, 0, NULL, C_DISC, true) == 1);
+	int r = receive_frame(fd, false, 0, NULL, C_DISC, true);
+	printf("receive_disc_frame:%d\n",r);
+	return r == 1;
 }
 
 /**
