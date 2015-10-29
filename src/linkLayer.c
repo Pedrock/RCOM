@@ -314,9 +314,7 @@ bool receive_ua_frame(int fd)
   */
 bool receive_disc_frame(int fd)
 {
-	int r = receive_frame(fd, false, 0, NULL, C_DISC, true);
-	printf("receive_disc_frame:%d\n",r);
-	return r == 1;
+	return (receive_frame(fd, false, 0, NULL, C_DISC, true) == 1);
 }
 
 /**
@@ -583,9 +581,10 @@ int llclose(int fd)
 		while (!success && numTransmissions < linkLayer.max_retries)
 		{
 			success = receive_disc_frame(fd);
+			if (success && !send_disc_frame(fd)) return -1;
 			numTransmissions++;
 		}
-		if (!send_disc_frame(fd)) return -1;
+		sleep(1);
 	}
 	tcflush(fd, TCOFLUSH);
 	if (tcsetattr(fd,TCSANOW,&linkLayer.oldtio) == -1) {
